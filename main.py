@@ -4,16 +4,18 @@ import neopixel
 import time
 
 from led_matrix import LEDMatrix
-from mcp23017 import MCPController
+from mcp23017 import MCP23017
+from machine import Pin, I2C
 
 stat = os.statvfs("/")
 size = stat[1] * stat[2]
 free = stat[0] * stat[3]
 used = size - free
 
-print("Size : {:,} bytes, {:,} KB, {} MB".format(size, size / 1024, size / 1024**2))
-print("Used : {:,} bytes, {:,} KB, {} MB".format(used, used / 1024, used / 1024**2))
-print("Free : {:,} bytes, {:,} KB, {} MB, {} % free".format(free, free / 1024, free / 1024**2, 100 - (round(used / size, 4) * 100)))
+print("Size : {:,} bytes, {:,} KB, {} MB".format(size, size / 1024, size / 1024 ** 2))
+print("Used : {:,} bytes, {:,} KB, {} MB".format(used, used / 1024, used / 1024 ** 2))
+print("Free : {:,} bytes, {:,} KB, {} MB, {} % free".format(free, free / 1024, free / 1024 ** 2,
+                                                            100 - (round(used / size, 4) * 100)))
 
 
 class MainProgram:
@@ -55,7 +57,7 @@ class MainProgram:
         self.lz_leds.fill((255, 255, 255))
 
         # configure expander board
-        self.mcp = MCPController()
+        self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
@@ -125,6 +127,13 @@ class MainProgram:
 machine.freq(200_000_000)  # boost pico clock to 200 MHz
 m = MainProgram()
 
+total_ticks = 0
+tick_ref = 0
+d_tick = 0
+
 while True:
-    m.update(time.ticks_ms())
+    tick_ref = time.ticks_ms()
+    m.update(total_ticks)
     time.sleep_ms(1)  # this essentially means we have an accuracy of ~1 ms, might need to increase this.
+    d_tick = time.ticks_diff(time.ticks_ms(), tick_ref)
+    total_ticks += d_tick

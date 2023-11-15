@@ -1,76 +1,147 @@
 import machine
+import math
 
 from machine import Pin
-from mcp23017 import MCPController
-
 
 class StepperController:
 
-    def __init__(self, MCP: MCPController):
-        self.mcp = MCP
+    def __init__(self, mcp):
+        self.mcp = mcp
 
-        # theta pins are directly connected to MCU to ensure that they execute at same speed
-        self.a_theta_step = Pin(2, Pin.OUT)
-        self.a_theta_dir = Pin(3, Pin.OUT)
+        self.stepper_theta_a = Stepper(2, 3, steps_per_rev=(200*8), speed_sps=400)  # 1600 steps / rev @ 400 sps = 4 s / rev
+        self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=(200*8), speed_sps=400)  # 1600 steps / rev @ 400 sps = 4 s / rev
 
-        self.b_theta_step = Pin(4, Pin.OUT)
-        self.b_theta_dir = Pin(5, Pin.OUT)
-
-        self.theta_step_deg = 0.225 # 1.8 deg @ 1/8 micro-stepping
-        self.theta_pos = 0
-        self.theta_steps = 0 # this is the current number of steps the MCU needs to do.
-
-        # phi control is from the expander, as well as limit switches (STEP: A1, DIR: A2)
-        self.phi_step_deg = 0.225
-        self.phi_pos = 0
-        self.phi_steps = 0
+        # TODO: add MCP functionality for stepper motor
+        # self.stepper_phi = Stepper(steps_per_rev=(200*8), speed_sps=400)
 
         self.at_home = False
         self.run = False
 
-    def update_steppers(self):
-        # if we are not at home or we are intentionally not running the motors... don't!
+    def update_steppers(self, ticks_elapsed):
         if not self.at_home or not self.run:
             return
-
-        if self.theta_steps > 0:  # this will run as fast as this updates, which is ~ 1ms (i.e. sleep(0.001))
-            # do stepping
-            pass
-
-        if self.phi_steps > 0:
-            # do stepping
-            pass
-
-        pass
-
-    def write_theta_deg(self, deg):
-        # if we try to write the same angle, or our current movement is not complete, exit.
-        if deg == self.theta_pos or self.theta_steps > 0:
-            return
-
-        # set direction pin depending on if we need to incline or decline
-        if deg > self.theta_pos:
-            self.a_theta_dir.on()
-            self.b_theta_dir.off()
-        else:
-            self.a_theta_dir.off()
-            self.b_theta_dir.on()
-
-        self.theta_steps = round(deg * (1/self.theta_step_deg))
-
-    def write_phi_deg(self, deg):
-        # if we try to write the same angle, or our current movement is not complete, exit.
-        if deg == self.phi_pos or self.phi_steps > 0:
-            return
-
-        # set direction pin depending on if we need to incline or decline
-        if deg > self.phi_pos:
-            self.mcp.set_pin_low(2)
-        else:
-            self.mcp.set_pin_high(2)
-
-        self.phi_steps = round(deg * (1/self.phi_step_deg))
 
     def home(self):
         # use limit switches to find home, home will be defined as straight-up looking toward center of platform.
         pass
+
+
+class Stepper:
+    def __init__(self, step_pin, dir_pin, en_pin=None, steps_per_rev=200, speed_sps=10, invert_dir=False, timer_id=-1):
+
+        if not isinstance(step_pin, machine.Pin):
+            step_pin = machine.Pin(step_pin, machine.Pin.OUT)
+        if not isinstance(dir_pin, machine.Pin):
+            dir_pin = machine.Pin(dir_pin, machine.Pin.OUT)
+        if (en_pin != None) and (not isinstance(en_pin, machine.Pin)):
+            en_pin = machine.Pin(en_pin, machine.Pin.OUT)
+
+        self.step_value_func = step_pin.value
+        self.dir_value_func = dir_pin.value
+        self.en_pin = en_pin
+        self.invert_dir = invert_dir
+
+        self.timer = machine.Timer(timer_id)
+        self.timer_is_running = False
+        self.free_run_mode = 0
+        self.enabled = True
+
+        self.target_pos = 0
+        self.pos = 0
+        self.steps_per_sec = speed_sps
+        self.steps_per_rev = steps_per_rev
+
+        self.track_target()
+
+    def speed(self, sps):
+        self.steps_per_sec = sps
+        if self.timer_is_running:
+            self.track_target()
+
+    def speed_rps(self, rps):
+        self.speed(rps * self.steps_per_rev)
+
+    def target(self, t):
+        self.target_pos = t
+
+    def target_deg(self, deg):
+        self.target(self.steps_per_rev * deg / 360.0)
+
+    def target_rad(self, rad):
+        self.target(self.steps_per_rev * rad / (2.0 * math.pi))
+
+    def get_pos(self):
+        return self.pos
+
+    def get_pos_deg(self):
+        return self.get_pos() * 360.0 / self.steps_per_rev
+
+    def get_pos_rad(self):
+        return self.get_pos() * (2.0 * math.pi) / self.steps_per_rev
+
+    def overwrite_pos(self, p):
+        self.pos = 0
+
+    def overwrite_pos_deg(self, deg):
+        self.overwrite_pos(deg * self.steps_per_rev / 360.0)
+
+    def overwrite_pos_rad(self, rad):
+        self.overwrite_pos(rad * self.steps_per_rev / (2.0 * math.pi))
+
+    def step(self, d):
+        if d > 0:
+            if self.enabled:
+                self.dir_value_func(1 ^ self.invert_dir)
+                self.step_value_func(1)
+                self.step_value_func(0)
+            self.pos += 1
+        elif d < 0:
+            if self.enabled:
+                self.dir_value_func(0 ^ self.invert_dir)
+                self.step_value_func(1)
+                self.step_value_func(0)
+            self.pos -= 1
+
+    def _timer_callback(self, t):
+        if self.free_run_mode > 0:
+            self.step(1)
+        elif self.free_run_mode < 0:
+            self.step(-1)
+        elif self.target_pos > self.pos:
+            self.step(1)
+        elif self.target_pos < self.pos:
+            self.step(-1)
+
+    def free_run(self, d):
+        self.free_run_mode = d
+        if self.timer_is_running:
+            self.timer.deinit()
+        if d != 0:
+            self.timer.init(freq=self.steps_per_sec, callback=self._timer_callback)
+            self.timer_is_running = True
+        else:
+            self.dir_value_func(0)
+
+    def track_target(self):
+        self.free_run_mode = 0
+        if self.timer_is_running:
+            self.timer.deinit()
+        self.timer.init(freq=self.steps_per_sec, callback=self._timer_callback)
+        self.timer_is_running = True
+
+    def stop(self):
+        self.free_run_mode = 0
+        if self.timer_is_running:
+            self.timer.deinit()
+        self.timer_is_running = False
+        self.dir_value_func(0)
+
+    def enable(self, e):
+        if self.en_pin:
+            self.en_pin.value(e)
+        self.enabled = e
+        if not e:
+            self.dir_value_func(0)
+
+    def is_enabled(self):
+        return self.enabled
