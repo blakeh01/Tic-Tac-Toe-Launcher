@@ -6,11 +6,13 @@ import rp2
 
 from led_matrix import LEDMatrix
 from machine import Timer
+from mcp23017 import MCPController
 
 class MainProgram:
 
     def __init__(self):
         # ----------------------------------------- CONFIGURE IO ----------------------------------------- #
+        print("Starting up...")
 
         # configure LED
         self.pico_led = machine.Pin("LED", machine.Pin.OUT)
@@ -44,9 +46,14 @@ class MainProgram:
         self.ctrl_leds.brightness(255)
         self.lz_leds.fill((255, 255, 255))
 
+        # configure expander board
+        self.mcp = MCPController()
+
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
         self.game_state = 0 # game state machine - are we disp instructions? are we playing?
+
+        print("Initialization complete!")
 
     def update(self, ticks_elapsed):
         # update pico led
