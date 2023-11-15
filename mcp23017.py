@@ -12,6 +12,7 @@ class MCPController:
 
     def __init__(self, scl=machine.Pin(1), sda=machine.Pin(0), addr=MCP23017_I2C_ADDR):
         print("Creating MCP controller instance...")
+        return
         self.i2c = machine.I2C(0, scl=scl, sda=sda)
         self.address = addr
 
