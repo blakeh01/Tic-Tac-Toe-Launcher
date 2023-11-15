@@ -3,31 +3,58 @@ import math
 
 from machine import Pin
 
+from mcp23017 import MCP23017
+
+
 class StepperController:
 
-    def __init__(self, mcp):
+    def __init__(self, mcp: MCP23017):
         self.mcp = mcp
+        self.switch_phi = mcp[3]
+        self.switch_theta = mcp[4]
 
-        self.stepper_theta_a = Stepper(2, 3, steps_per_rev=(200*8), speed_sps=400)  # 1600 steps / rev @ 400 sps = 4 s / rev
-        self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=(200*8), speed_sps=400)  # 1600 steps / rev @ 400 sps = 4 s / rev
+        self.theta_sps = 400
+        self.stepper_theta_a = Stepper(2, 3, steps_per_rev=(200 * 8),
+                                       speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
+        self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=(200 * 8),
+                                       speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
 
         # TODO: add MCP functionality for stepper motor
-        # self.stepper_phi = Stepper(steps_per_rev=(200*8), speed_sps=400)
+        self.stepper_phi = Stepper(steps_per_rev=(200*8), speed_sps=400)
 
         self.at_home = False
         self.run = False
+
+        self.home()
 
     def update_steppers(self, ticks_elapsed):
         if not self.at_home or not self.run:
             return
 
+    def write_theta(self, deg):
+        self.stepper_theta_a.target_deg(deg)
+        self.stepper_theta_b.target_deg(deg)
+
+    def write_phi(self, deg):
+        self.stepper_phi.target_deg(deg)
+
     def home(self):
-        # use limit switches to find home, home will be defined as straight-up looking toward center of platform.
-        pass
+        # this function is BLOCKING... do NOT use when unless you need to.
+
+        self.stepper_phi.speed(self.theta_sps/4)  # in steps per second
+        self.stepper_phi.free_run(-1)   # continuously step motor
+
+        while self.switch_phi.value():
+            pass  # stall here until switch is triggered
+
+        self.stepper_phi.stop()  # stop motor
+        self.stepper_phi.overwrite_pos(0)  # set motor position to 0 (i.e. home)
+        self.stepper_phi.speed(self.theta_sps)  # set back to default speed
+        self.stepper_phi.track_target()  # re-enable stepper
 
 
 class Stepper:
-    def __init__(self, step_pin, dir_pin, en_pin=None, steps_per_rev=200, speed_sps=10, invert_dir=False, timer_id=-1):
+    def __init__(self, step_pin: int, dir_pin: int, en_pin=None, steps_per_rev=200, speed=10, invert_dir=False, timer_id=-1):
 
         if not isinstance(step_pin, machine.Pin):
             step_pin = machine.Pin(step_pin, machine.Pin.OUT)
@@ -48,7 +75,7 @@ class Stepper:
 
         self.target_pos = 0
         self.pos = 0
-        self.steps_per_sec = speed_sps
+        self.steps_per_sec = speed
         self.steps_per_rev = steps_per_rev
 
         self.track_target()
