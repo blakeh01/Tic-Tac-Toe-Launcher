@@ -63,10 +63,10 @@ class MainProgram:
         self.lz_leds.fill((255, 255, 255))
 
         # configure expander board
-       # self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
+        self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
 
         # configure stepper controller
-       # self.steppers = StepperController(self.mcp)
+        self.steppers = StepperController(self.mcp)
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
