@@ -72,7 +72,7 @@ class MainProgram:
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
         self.game_state = MAIN_MENU  # game state machine - are we disp instructions? are we playing?
-        self.current_player = 1
+        self.current_player = True  # true player 1, false player 2
 
         self.cur_board = [
             0, 0, 0,
@@ -81,8 +81,18 @@ class MainProgram:
         ]
 
         self.has_announced_mode = False
+
         self.launch_flag = False
         self.launch_duration = 250  # solenoid power on duration in ms
+
+        self.score_flag = False
+        self.score_celebration_duration = 3000  # how long to wait before continuing game after a score
+
+        self.aim_cd = 250  # how long to wait between aim actions
+        self.aim_long_press = 3  # how many btn updates before turbo mode tbd
+        self.manual_theta = 0
+        self.manual_phi = 0
+
         self.action_timer = 0
 
         print("Initialization complete!")
@@ -96,29 +106,28 @@ class MainProgram:
                 self.pico_led.off()
             else:
                 self.pico_led.on()
-            self.led_timer = ticks_elapsed + 500
+            self.led_timer = ticks_elapsed + 250
 
         # update LED matrix for displaying scrolling messages
         self.led_matrix.update(ticks_elapsed)
 
         # update GPIO states
-        self.update_btn_gpio(ticks_elapsed)
-        self.update_beam_gpio(ticks_elapsed)
+        self.update_btn_gpio()
+        self.update_beam_gpio()
 
         # ----------------------------------------- HANDLE FLAGS ----------------------------------------- #
         if self.launch_flag and self.action_timer > 0:
-            print("FIRING!")
             self.mcp[0].output(1)
             if self.action_timer >= ticks_elapsed:
                 self.mcp[0].output(0)
                 self.action_timer = 0
 
-
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
         # ------------------- MAIN MENU ------------------- #
         if self.game_state == MAIN_MENU:
-            self.led_matrix.disp_scrolling_message("Welcome To Tic-Tac-Toe Mortar Launcher! PRESS RED BUTTON TO CONTINUE!")
+            self.led_matrix.disp_scrolling_message(
+                "Welcome To Tic-Tac-Toe Mortar Launcher! PRESS RED BUTTON TO CONTINUE!")
             self.ctrl_leds.set_pixel(4, (255, 0, 0))
             self.ctrl_leds.show()
 
@@ -153,23 +162,37 @@ class MainProgram:
                     self.ctrl_leds.clear()
                     self.ctrl_leds.show()
                     self.led_matrix.disp_static_message("PLAYER 1")  # todo randomize first player?
-                    self.current_player = 1
+                    self.current_player = True
             else:
+                if not self.launch_flag and self.action_timer == 0:
+                    if self.btn_states[1] == 0:  # aim up
+                        self.manual_theta += 5
+                        if self.manual_theta > 90: self.manual_theta = 90
+                        self.steppers.write_theta(self.manual_theta)
+                        self.action_timer = ticks_elapsed + self.aim_cd
 
-                if self.btn_states[1] == 0: # aim up
-                    pass
-                elif self.btn_states[3] == 0: # aim left
-                    pass
-                elif self.btn_states[4] == 0 and not self.launch_flag: # shoot!
-                    self.launch_flag = True
-                    self.action_timer = ticks_elapsed + self.launch_duration
-                elif self.btn_states[5] == 0: # aim right
-                    pass
-                elif self.btn_states[7] == 0: # aim down
-                    pass
+                    elif self.btn_states[3] == 0:  # aim left
+                        pass
+                        self.action_timer = ticks_elapsed + self.aim_cd
 
+                    elif self.btn_states[4] == 0 and not self.launch_flag:  # shoot!
+                        print("FIRING!")
+                        self.launch_flag = True
+                        self.action_timer = ticks_elapsed + self.launch_duration
 
+                    elif self.btn_states[5] == 0:  # aim right
+                        pass
+                        self.action_timer = ticks_elapsed + self.aim_cd
 
+                    elif self.btn_states[7] == 0:
+                        self.manual_theta -= 5
+                        if self.manual_theta < 0: self.manual_theta = 0
+
+                        self.steppers.write_theta(self.manual_theta)
+                        self.action_timer = ticks_elapsed + self.aim_cd
+
+                if self.action_timer <= ticks_elapsed:
+                    self.action_timer = 0
 
         # ------------------- AUTO MODE ------------------- #
         elif self.game_state == AUTO_MODE:
@@ -179,7 +202,7 @@ class MainProgram:
         elif self.game_state == GAME_OVER:
             pass
 
-    def update_btn_gpio(self, ticks_elapsed):
+    def update_btn_gpio(self):
         # Read the button states
         current_button_states = [button.value() for button in self.btn_pins]
 
@@ -193,7 +216,7 @@ class MainProgram:
             else:
                 self.btn_change_counter[i] = 0
 
-    def update_beam_gpio(self, ticks_elapsed):
+    def update_beam_gpio(self):
         # Read the beam states
         current_beam_states = [button.value() for button in self.beam_pins]
 
@@ -221,7 +244,6 @@ m = MainProgram()
 total_ticks = 0
 tick_ref = 0
 d_tick = 0
-
 
 while True:
     tick_ref = time.ticks_ms()
