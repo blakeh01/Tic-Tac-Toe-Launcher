@@ -47,7 +47,7 @@ class LEDMatrix:
 
         self.cur_message = message
         self.display.fill(0)
-        self.display.text(self.cur_message)
+        self.display.text(self.cur_message, 0, 0, 1)
         self.display.show()
 
     def disp_scrolling_message(self, message, scroll_speed=10):

@@ -20,12 +20,12 @@ class StepperController:
                                        speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
 
         # TODO: add MCP functionality for stepper motor
-        self.stepper_phi = Stepper(steps_per_rev=(200*8), speed_sps=400)
+        #self.stepper_phi = Stepper(steps_per_rev=(200*8), speed=400)
 
         self.at_home = False
         self.run = False
 
-        self.home()
+        # self.home()
 
     def update_steppers(self, ticks_elapsed):
         if not self.at_home or not self.run:
@@ -51,6 +51,8 @@ class StepperController:
         self.stepper_phi.overwrite_pos(0)  # set motor position to 0 (i.e. home)
         self.stepper_phi.speed(self.theta_sps)  # set back to default speed
         self.stepper_phi.track_target()  # re-enable stepper
+
+        self.at_home = True
 
 
 class Stepper:
