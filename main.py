@@ -50,7 +50,7 @@ class MainProgram:
         self.ctrl_leds.fill((255, 255, 255))
 
         # configure landing zone LEDs
-        self.lz_leds = neopixel.Neopixel(9, 0, 16, "GRB")
+        self.lz_leds = neopixel.Neopixel(9, 1, 16, "GRB")
         self.ctrl_leds.brightness(255)
         self.lz_leds.fill((255, 255, 255))
 
