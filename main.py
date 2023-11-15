@@ -45,9 +45,8 @@ class MainProgram:
         # configure beam break IO, might want to put these on IRQs? (Reset state after certain amount of time)
         self.beam_idx = [20, 21, 22, 26, 27, 28]
         self.beam_pins = [machine.Pin(pin, machine.Pin.IN, machine.Pin.PULL_UP) for pin in self.beam_idx]
-        self.beam_states = [0] * len(self.beam_idx)
-        self.beam_change_counter = [0 for _ in self.beam_pins]  # used in debouncing
-        self.beam_debounce_delay = 1  # in millis
+        self.beam_states = [1] * len(self.beam_idx)
+        self.beam_reset_counter = 0
 
         # configure LED matrix
         self.led_matrix = LEDMatrix()
@@ -64,10 +63,10 @@ class MainProgram:
         self.lz_leds.fill((255, 255, 255))
 
         # configure expander board
-        self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
+       # self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
 
         # configure stepper controller
-        self.steppers = StepperController(self.mcp)
+       # self.steppers = StepperController(self.mcp)
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
@@ -218,17 +217,22 @@ class MainProgram:
 
     def update_beam_gpio(self):
         # Read the beam states
-        current_beam_states = [button.value() for button in self.beam_pins]
+        current_beam_states = [beam.value() for beam in self.beam_pins]
 
-        # check for how long a change has been active, if its for as long as debounce delay, we can know that must be
-        # the current state!
+        # essentially, we want to set our beam states when they are first broken
+        # and we want that state to stay even after the beam is regained
+        # we only reset after a short duration, this gives us the best chance at detecting the ball.
+
         for i in range(len(self.beam_pins)):
-            if current_beam_states[i] != self.beam_states[i]:
-                self.beam_change_counter[i] += 1
-                if self.beam_change_counter[i] > self.beam_debounce_delay:
-                    self.beam_states[i] = current_beam_states[i]
-            else:
-                self.beam_change_counter[i] = 0
+            if self.beam_states[i] != current_beam_states[i] and current_beam_states[i] == 0:
+                self.beam_states[i] = current_beam_states[i]
+                self.beam_reset_counter = 0
+
+        self.beam_reset_counter += 1
+
+        if self.beam_reset_counter > 500:
+            self.beam_states = current_beam_states
+            self.beam_reset_counter = 0
 
     def toggle_led(self):
         print("hi")
