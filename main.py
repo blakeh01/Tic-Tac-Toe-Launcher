@@ -50,17 +50,21 @@ class MainProgram:
 
         # configure LED matrix
         self.led_matrix = LEDMatrix()
-        self.led_matrix.disp_static_message("INITIALIZING...")
+        self.led_matrix.disp_static_message("INIT")
 
         # configure control pad LEDs
         self.ctrl_leds = neopixel.Neopixel(9, 0, 15, "GRB")
-        self.ctrl_leds.brightness(50)
+        self.ctrl_leds.brightness(5)
         self.ctrl_leds.fill((255, 255, 255))
+        self.ctrl_leds.show()
 
         # configure landing zone LEDs
         self.lz_leds = neopixel.Neopixel(9, 1, 16, "GRB")
-        self.ctrl_leds.brightness(255)
+        self.ctrl_leds.brightness(20)
         self.lz_leds.fill((255, 255, 255))
+        self.ctrl_leds.show()
+
+        self.leds_color_cache = [(255, 255, 255)] * (self.ctrl_leds.num_leds + self.lz_leds.num_leds)
 
         # configure expander board
         self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
@@ -82,7 +86,7 @@ class MainProgram:
         self.has_announced_mode = False
 
         self.launch_flag = False
-        self.launch_duration = 250  # solenoid power on duration in ms
+        self.launch_duration = 750  # solenoid power on duration in ms
 
         self.score_flag = False
         self.score_celebration_duration = 3000  # how long to wait before continuing game after a score
@@ -117,9 +121,10 @@ class MainProgram:
         # ----------------------------------------- HANDLE FLAGS ----------------------------------------- #
         if self.launch_flag and self.action_timer > 0:
             self.mcp[0].output(1)
-            if self.action_timer >= ticks_elapsed:
+            if self.action_timer <= ticks_elapsed:
                 self.mcp[0].output(0)
                 self.action_timer = 0
+                self.launch_flag = False
 
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
@@ -127,8 +132,7 @@ class MainProgram:
         if self.game_state == MAIN_MENU:
             self.led_matrix.disp_scrolling_message(
                 "Welcome To Tic-Tac-Toe Mortar Launcher! PRESS RED BUTTON TO CONTINUE!")
-            self.ctrl_leds.set_pixel(4, (255, 0, 0))
-            self.ctrl_leds.show()
+            self.set_pixel_and_notify(4, (255, 0, 0))
 
             if self.btn_states[4] == 0:
                 self.game_state = SELECT_MODE
@@ -138,9 +142,8 @@ class MainProgram:
         # ------------------- SELECT MODE ------------------- #
         elif self.game_state == SELECT_MODE:
             self.led_matrix.disp_scrolling_message("SELECT GAME MODE!")
-            self.ctrl_leds.set_pixel(1, (255, 0, 0))
-            self.ctrl_leds.set_pixel(7, (255, 0, 0))
-            self.ctrl_leds.show()
+            self.set_pixel_and_notify(1, (255, 0, 0))
+            self.set_pixel_and_notify(7, (255, 0, 0))
 
             if self.btn_states[1] == 0 or self.btn_states[7] == 0:
                 self.game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
@@ -155,7 +158,7 @@ class MainProgram:
                 self.ctrl_leds.fill((0, 150, 255))
                 self.ctrl_leds.show()
                 self.led_matrix.disp_scrolling_message("STARTING MANUAL MODE IN 3...2...1")
-                if self.action_timer > ticks_elapsed:
+                if self.action_timer <= ticks_elapsed:
                     self.has_announced_mode = True
                     self.action_timer = 0
                     self.ctrl_leds.clear()
@@ -163,6 +166,7 @@ class MainProgram:
                     self.led_matrix.disp_static_message("PLAYER 1")  # todo randomize first player?
                     self.current_player = True
             else:
+                self.set_pixel_and_notify(4, (255, 0, 0))
                 if not self.launch_flag and self.action_timer == 0:
                     if self.btn_states[1] == 0:  # aim up
                         self.manual_theta += 5
@@ -171,16 +175,15 @@ class MainProgram:
                         self.action_timer = ticks_elapsed + self.aim_cd
 
                     elif self.btn_states[3] == 0:  # aim left
-                        pass
                         self.action_timer = ticks_elapsed + self.aim_cd
 
                     elif self.btn_states[4] == 0 and not self.launch_flag:  # shoot!
                         print("FIRING!")
                         self.launch_flag = True
                         self.action_timer = ticks_elapsed + self.launch_duration
+                        print(self.action_timer)
 
                     elif self.btn_states[5] == 0:  # aim right
-                        pass
                         self.action_timer = ticks_elapsed + self.aim_cd
 
                     elif self.btn_states[7] == 0:
@@ -234,15 +237,16 @@ class MainProgram:
             self.beam_states = current_beam_states
             self.beam_reset_counter = 0
 
-    def toggle_led(self):
-        print("hi")
-        if self.pico_led.value():
-            self.pico_led.off()
-        else:
-            self.pico_led.on()
+    def set_pixel_and_notify(self, pixel_id, rgb, force_update=False):
+        # check to see if color has changed, if so, set it, otherwise, do not update it
+        if self.leds_color_cache[pixel_id] != rgb or force_update:
+            self.ctrl_leds.set_pixel(pixel_id, rgb)
+            self.ctrl_leds.brightness(20)
+            self.ctrl_leds.show()
+            self.leds_color_cache[pixel_id] = rgb
 
 
-machine.freq(200_000_000)  # boost pico clock to 200 MHz
+machine.freq(250_000_000)  # boost pico clock to 200 MHz
 m = MainProgram()
 
 total_ticks = 0
