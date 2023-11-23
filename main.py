@@ -63,7 +63,7 @@ class MainProgram:
 
         # configure landing zone LEDs
         self.lz_leds = neopixel.Neopixel(9, 1, 16, "GRB")
-        self.ctrl_leds.brightness(20)
+        self.ctrl_leds.brightness(255)
         self.lz_leds.fill((255, 255, 255))
         self.ctrl_leds.show()
 
@@ -121,6 +121,12 @@ class MainProgram:
         # update stepper motors
         self.steppers.update_steppers()
 
+        # update landing zone leds
+        for i in self.cur_board:
+            if i == 0: self.ctrl_leds.set_pixel_nfu(i, (255, 255, 255))
+            elif i == 1: self.ctrl_leds.set_pixel_nfu(i, (255, 0, 0))
+            elif i == 2: self.ctrl_leds.set_pixel_nfu(i, (0, 0, 255))
+
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
         # ------------------- MAIN MENU ------------------- #
@@ -147,6 +153,10 @@ class MainProgram:
         # ------------------- MANUAL MODE ------------------- #
         elif self.game_state == MANUAL_MODE:
             self.ctrl_leds.set_pixel_nfu(4, (255, 0, 0))
+            self.ctrl_leds.set_pixel_nfu(1, (255, 255, 255))
+            self.ctrl_leds.set_pixel_nfu(3, (255, 255, 255))
+            self.ctrl_leds.set_pixel_nfu(5, (255, 255, 255))
+            self.ctrl_leds.set_pixel_nfu(7, (255, 255, 255))
 
             if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
                 self.manual_theta += 5
@@ -219,7 +229,7 @@ class MainProgram:
                 self.steppers.write_theta(self.manual_theta)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
-            if self.btn_states[0]:
+            if self.btn_states[0]:  # TODO: use manual mode to find steps to make shot.
                 print(self.manual_theta, self.manual_phi)
 
         # ------------------- LAUNCH ------------------- #
@@ -242,6 +252,7 @@ class MainProgram:
             if ticks_elapsed >= self.action_timer:
                 if self.check_winner():
                     self.game_state = GAME_OVER
+                    self.action_timer = ticks_elapsed + 5000  # disp player win for 5 seconds
 
                 self.game_state = self.last_game_state
                 self.action_timer = 0
@@ -249,7 +260,16 @@ class MainProgram:
 
         # ------------------- GAME OVER ------------------- #
         elif self.game_state == GAME_OVER:
-            pass
+            if ticks_elapsed <= self.action_timer:
+                if self.check_winner() == 1:
+                    self.led_matrix.disp_scrolling_message("PLAYER 1 WINS!")
+                elif self.check_winner() == 2:
+                    self.led_matrix.disp_scrolling_message("PLAYER 2 WINS!")
+
+            else:
+                self.led_matrix.disp_scrolling_message("PRESS ANY BUTTON TO PLAY AGAIN!")
+                if any(self.btn_states):
+                    self.reset_game()
 
     def update_btn_gpio(self):
         # Read the button states
@@ -302,6 +322,11 @@ class MainProgram:
             return self.cur_board[2]
 
         return None
+
+    def reset_game(self):
+        self.cur_board = [0] * 9
+        self.action_timer = 0
+
 
 
 machine.freq(250_000_000)  # boost pico clock to 200 MHz
