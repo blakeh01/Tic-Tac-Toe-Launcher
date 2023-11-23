@@ -235,10 +235,14 @@ class MainProgram:
         # ------------------- WAIT FOR SCORE ------------------- #
         elif self.game_state == WAIT_SCORE:
 
+            #  TODO: below will be logic for beam breaks
             if any(self.beam_states):
                 self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE")
 
             if ticks_elapsed >= self.action_timer:
+                if self.check_winner():
+                    self.game_state = GAME_OVER
+
                 self.game_state = self.last_game_state
                 self.action_timer = 0
                 self.current_player = not self.current_player
@@ -279,6 +283,25 @@ class MainProgram:
         if self.beam_reset_counter > 500:
             self.beam_states = current_beam_states
             self.beam_reset_counter = 0
+
+    def check_winner(self):
+        # Check rows
+        for i in range(0, 9, 3):
+            if self.cur_board[i] == self.cur_board[i + 1] == self.cur_board[i + 2] and self.cur_board[i] in ['1', '2']:
+                return self.cur_board[i]
+
+        # Check columns
+        for i in range(3):
+            if self.cur_board[i] == self.cur_board[i + 3] == self.cur_board[i + 6] and self.cur_board[i] in ['1', '2']:
+                return self.cur_board[i]
+
+        # Check diagonals
+        if self.cur_board[0] == self.cur_board[4] == self.cur_board[8] and self.cur_board[0] in ['1', '2']:
+            return self.cur_board[0]
+        if self.cur_board[2] == self.cur_board[4] == self.cur_board[6] and self.cur_board[2] in ['1', '2']:
+            return self.cur_board[2]
+
+        return None
 
 
 machine.freq(250_000_000)  # boost pico clock to 200 MHz
