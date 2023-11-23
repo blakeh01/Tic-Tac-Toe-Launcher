@@ -21,6 +21,7 @@ class LEDMatrix:
         self.cur_message = ""
 
         self.flash = False
+        self.flash_rate = 0
         self.disp_empty = False
 
         self.column = 0
@@ -53,14 +54,15 @@ class LEDMatrix:
                         self.reset_disp()
                         self.disp_empty = False
 
-                    self.next_update = ticks_elapsed + 250  # 250 ms flash
+                    self.next_update = ticks_elapsed + self.flash_rate  # 250 ms flash
 
-    def disp_flashing_message(self, message):
+    def disp_flashing_message(self, message, rate):
         if message == self.cur_message:
             return
 
         self.reset_disp()
         self.flash = True
+        self.flash_rate = rate
         self.cur_message = message
         self.display.fill(0)
         self.display.text(self.cur_message, 0, 0, 1)
@@ -89,6 +91,7 @@ class LEDMatrix:
     def reset_disp(self):
         self.column = 0
         self.flash = False
+        self.flash_rate = 0
         self.next_update = 0
         self.display.fill(0)
         self.display.show()

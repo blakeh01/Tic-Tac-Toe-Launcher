@@ -235,7 +235,7 @@ class MainProgram:
         # ------------------- LAUNCH ------------------- #
         elif self.game_state == LAUNCH:
             self.mcp[0].output(1)
-            self.led_matrix.disp_flashing_message("BOOM!")
+            self.led_matrix.disp_flashing_message("BOOM!", 250)
 
             if ticks_elapsed >= self.action_timer:
                 self.mcp[0].output(0)
@@ -247,7 +247,7 @@ class MainProgram:
 
             #  TODO: below will be logic for beam breaks
             if any(self.beam_states):
-                self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE")
+                self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE", 250)
 
             if ticks_elapsed >= self.action_timer:
                 if self.check_winner():
@@ -328,8 +328,7 @@ class MainProgram:
         self.action_timer = 0
 
 
-
-machine.freq(250_000_000)  # boost pico clock to 200 MHz
+machine.freq(250_000_000)  # boost pico clock to 250 MHz
 m = MainProgram()
 
 total_ticks = 0
