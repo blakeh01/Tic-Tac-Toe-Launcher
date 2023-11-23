@@ -14,9 +14,9 @@ class StepperController:
         self.switch_theta = mcp[4]
 
         self.theta_sps = 400
-        self.stepper_theta_a = Stepper(2, 3, steps_per_rev=(200 * 8),
+        self.stepper_theta_a = Stepper(2, 3, steps_per_rev=200,
                                        speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
-        self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=(200 * 8),
+        self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=200,
                                        speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
 
         # TODO: add MCP functionality for stepper motor
@@ -146,7 +146,7 @@ class Stepper:
         if self.timer_is_running:
             self.timer.deinit()
         if d != 0:
-            self.timer.init(freq=self.steps_per_sec, callback=self._timer_callback)
+            self.timer.init(period=int((1/self.steps_per_sec)*1000), callback=self._timer_callback)
             self.timer_is_running = True
         else:
             self.dir_value_func(0)
@@ -155,7 +155,7 @@ class Stepper:
         self.free_run_mode = 0
         if self.timer_is_running:
             self.timer.deinit()
-        self.timer.init(freq=self.steps_per_sec, callback=self._timer_callback)
+        self.timer.init(period=int((1/self.steps_per_sec)*1000), callback=self._timer_callback)
         self.timer_is_running = True
 
     def stop(self):

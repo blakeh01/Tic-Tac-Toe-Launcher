@@ -5,7 +5,7 @@ import time
 
 from led_matrix import LEDMatrix
 from mcp23017 import MCP23017
-from stepper_ctrl import StepperController
+from stepper import StepperController
 from machine import Pin, I2C
 
 stat = os.statvfs("/")
@@ -23,6 +23,9 @@ SELECT_MODE = 1
 MANUAL_MODE = 2
 AUTO_MODE = 3
 GAME_OVER = 4
+
+LAUNCH = 5
+WAIT_SCORE = 6
 
 
 class MainProgram:
@@ -64,8 +67,6 @@ class MainProgram:
         self.lz_leds.fill((255, 255, 255))
         self.ctrl_leds.show()
 
-        self.leds_color_cache = [(255, 255, 255)] * (self.ctrl_leds.num_leds + self.lz_leds.num_leds)
-
         # configure expander board
         self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
 
@@ -75,6 +76,7 @@ class MainProgram:
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
         self.game_state = MAIN_MENU  # game state machine - are we disp instructions? are we playing?
+        self.last_game_state = MAIN_MENU  # used as a way to loop back after launching/scoring
         self.current_player = True  # true player 1, false player 2
 
         self.cur_board = [
@@ -85,30 +87,28 @@ class MainProgram:
 
         self.has_announced_mode = False
 
-        self.launch_flag = False
-        self.launch_duration = 750  # solenoid power on duration in ms
-
-        self.score_flag = False
-        self.score_celebration_duration = 3000  # how long to wait before continuing game after a score
+        self.launch_duration = 500  # solenoid power on duration in ms
+        self.score_timeout = 2500  # how long to wait until a miss is determined
 
         self.aim_cd = 250  # how long to wait between aim actions
-        self.aim_long_press = 3  # how many btn updates before turbo mode tbd
         self.manual_theta = 0
         self.manual_phi = 0
 
-        self.action_timer = 0
+        self.action_timer = 0  # general purpose timer for game purposes.
 
         print("Initialization complete!")
 
     def update(self, ticks_elapsed):
         # ----------------------------------------- UPDATE MCU ----------------------------------------- #
 
-        # update pico led
+        # update pico led & rgb leds
         if ticks_elapsed >= self.led_timer:
             if self.pico_led.value():
                 self.pico_led.off()
             else:
                 self.pico_led.on()
+                self.ctrl_leds.show()
+                self.lz_leds.show()  # also notifying the leds.
             self.led_timer = ticks_elapsed + 250
 
         # update LED matrix for displaying scrolling messages
@@ -118,13 +118,8 @@ class MainProgram:
         self.update_btn_gpio()
         self.update_beam_gpio()
 
-        # ----------------------------------------- HANDLE FLAGS ----------------------------------------- #
-        if self.launch_flag and self.action_timer > 0:
-            self.mcp[0].output(1)
-            if self.action_timer <= ticks_elapsed:
-                self.mcp[0].output(0)
-                self.action_timer = 0
-                self.launch_flag = False
+        # update stepper motors
+        self.steppers.update_steppers()
 
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
@@ -132,73 +127,121 @@ class MainProgram:
         if self.game_state == MAIN_MENU:
             self.led_matrix.disp_scrolling_message(
                 "Welcome To Tic-Tac-Toe Mortar Launcher! PRESS RED BUTTON TO CONTINUE!")
-            self.set_pixel_and_notify(4, (255, 0, 0))
+            self.ctrl_leds.set_pixel_nfu(4, (255, 0, 0))
 
             if self.btn_states[4] == 0:
                 self.game_state = SELECT_MODE
                 self.ctrl_leds.clear()
-                self.ctrl_leds.show()
 
         # ------------------- SELECT MODE ------------------- #
         elif self.game_state == SELECT_MODE:
             self.led_matrix.disp_scrolling_message("SELECT GAME MODE!")
-            self.set_pixel_and_notify(1, (255, 0, 0))
-            self.set_pixel_and_notify(7, (255, 0, 0))
+            self.ctrl_leds.set_pixel_nfu(1, (255, 0, 0))
+            self.ctrl_leds.set_pixel_nfu(7, (255, 0, 0))
 
             if self.btn_states[1] == 0 or self.btn_states[7] == 0:
                 self.game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
                 self.ctrl_leds.clear()
-                self.ctrl_leds.show()
                 self.action_timer = ticks_elapsed + 3000  # 3 seconds
 
         # ------------------- MANUAL MODE ------------------- #
         elif self.game_state == MANUAL_MODE:
-            # announce that the game has started and set current player
-            if not self.has_announced_mode:
-                self.ctrl_leds.fill((0, 150, 255))
-                self.ctrl_leds.show()
-                self.led_matrix.disp_scrolling_message("STARTING MANUAL MODE IN 3...2...1")
-                if self.action_timer <= ticks_elapsed:
-                    self.has_announced_mode = True
-                    self.action_timer = 0
-                    self.ctrl_leds.clear()
-                    self.ctrl_leds.show()
-                    self.led_matrix.disp_static_message("PLAYER 1")  # todo randomize first player?
-                    self.current_player = True
-            else:
-                self.set_pixel_and_notify(4, (255, 0, 0))
-                if not self.launch_flag and self.action_timer == 0:
-                    if self.btn_states[1] == 0:  # aim up
-                        self.manual_theta += 5
-                        if self.manual_theta > 90: self.manual_theta = 90
-                        self.steppers.write_theta(self.manual_theta)
-                        self.action_timer = ticks_elapsed + self.aim_cd
+            self.ctrl_leds.set_pixel_nfu(4, (255, 0, 0))
 
-                    elif self.btn_states[3] == 0:  # aim left
-                        self.action_timer = ticks_elapsed + self.aim_cd
+            if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
+                self.manual_theta += 5
+                if self.manual_theta > 90:
+                    self.manual_theta = 90
+                self.steppers.write_theta(self.manual_theta)
+                self.action_timer = ticks_elapsed + self.aim_cd
 
-                    elif self.btn_states[4] == 0 and not self.launch_flag:  # shoot!
-                        print("FIRING!")
-                        self.launch_flag = True
-                        self.action_timer = ticks_elapsed + self.launch_duration
-                        print(self.action_timer)
+            elif self.btn_states[3] == 0 and ticks_elapsed >= self.action_timer:  # aim left
+                self.manual_phi += 5
+                if self.manual_phi > 180:
+                    self.manual_phi = 180
+                self.steppers.write_phi(self.manual_phi)
+                self.action_timer = ticks_elapsed + self.aim_cd
 
-                    elif self.btn_states[5] == 0:  # aim right
-                        self.action_timer = ticks_elapsed + self.aim_cd
+            elif self.btn_states[4] == 0:  # shoot!
+                print("FIRING!")
+                self.last_game_state = self.game_state
+                self.game_state = LAUNCH
+                self.action_timer = ticks_elapsed + self.launch_duration
 
-                    elif self.btn_states[7] == 0:
-                        self.manual_theta -= 5
-                        if self.manual_theta < 0: self.manual_theta = 0
+            elif self.btn_states[5] == 0 and ticks_elapsed >= self.action_timer:  # aim right
+                self.manual_phi -= 5
+                if self.manual_phi > 180:
+                    self.manual_phi = 180
+                self.steppers.write_phi(self.manual_phi)
+                self.action_timer = ticks_elapsed + self.aim_cd
 
-                        self.steppers.write_theta(self.manual_theta)
-                        self.action_timer = ticks_elapsed + self.aim_cd
-
-                if self.action_timer <= ticks_elapsed:
-                    self.action_timer = 0
+            elif self.btn_states[7] == 0 and ticks_elapsed >= self.action_timer: # aim down
+                self.manual_theta -= 5
+                if self.manual_theta < 0:
+                    self.manual_theta = 0
+                self.steppers.write_theta(self.manual_theta)
+                self.action_timer = ticks_elapsed + self.aim_cd
 
         # ------------------- AUTO MODE ------------------- #
         elif self.game_state == AUTO_MODE:
-            pass
+
+            if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
+                self.manual_theta += 5
+                if self.manual_theta > 90:
+                    self.manual_theta = 90
+                self.steppers.write_theta(self.manual_theta)
+                self.action_timer = ticks_elapsed + self.aim_cd
+
+            elif self.btn_states[3] == 0 and ticks_elapsed >= self.action_timer:  # aim left
+                self.manual_phi += 5
+                if self.manual_phi > 180:
+                    self.manual_phi = 180
+                self.steppers.write_phi(self.manual_phi)
+                self.action_timer = ticks_elapsed + self.aim_cd
+
+            elif self.btn_states[4] == 0:  # shoot!
+                print("FIRING!")
+                self.last_game_state = self.game_state
+                self.game_state = LAUNCH
+                self.action_timer = ticks_elapsed + self.launch_duration
+
+            elif self.btn_states[5] == 0 and ticks_elapsed >= self.action_timer:  # aim right
+                self.manual_phi -= 5
+                if self.manual_phi > 180:
+                    self.manual_phi = 180
+                self.steppers.write_phi(self.manual_phi)
+                self.action_timer = ticks_elapsed + self.aim_cd
+
+            elif self.btn_states[7] == 0 and ticks_elapsed >= self.action_timer: # aim down
+                self.manual_theta -= 5
+                if self.manual_theta < 0:
+                    self.manual_theta = 0
+                self.steppers.write_theta(self.manual_theta)
+                self.action_timer = ticks_elapsed + self.aim_cd
+
+            if self.btn_states[0]:
+                print(self.manual_theta, self.manual_phi)
+
+        # ------------------- LAUNCH ------------------- #
+        elif self.game_state == LAUNCH:
+            self.mcp[0].output(1)
+            self.led_matrix.disp_flashing_message("BOOM!")
+
+            if ticks_elapsed >= self.action_timer:
+                self.mcp[0].output(0)
+                self.action_timer = ticks_elapsed + self.score_timeout
+                self.game_state = WAIT_SCORE
+
+        # ------------------- WAIT FOR SCORE ------------------- #
+        elif self.game_state == WAIT_SCORE:
+
+            if any(self.beam_states):
+                self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE")
+
+            if ticks_elapsed >= self.action_timer:
+                self.game_state = self.last_game_state
+                self.action_timer = 0
+                self.current_player = not self.current_player
 
         # ------------------- GAME OVER ------------------- #
         elif self.game_state == GAME_OVER:
@@ -236,14 +279,6 @@ class MainProgram:
         if self.beam_reset_counter > 500:
             self.beam_states = current_beam_states
             self.beam_reset_counter = 0
-
-    def set_pixel_and_notify(self, pixel_id, rgb, force_update=False):
-        # check to see if color has changed, if so, set it, otherwise, do not update it
-        if self.leds_color_cache[pixel_id] != rgb or force_update:
-            self.ctrl_leds.set_pixel(pixel_id, rgb)
-            self.ctrl_leds.brightness(20)
-            self.ctrl_leds.show()
-            self.leds_color_cache[pixel_id] = rgb
 
 
 machine.freq(250_000_000)  # boost pico clock to 200 MHz

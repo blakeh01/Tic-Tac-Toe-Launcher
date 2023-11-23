@@ -20,6 +20,9 @@ class LEDMatrix:
         self.next_update = 0
         self.cur_message = ""
 
+        self.flash = False
+        self.disp_empty = False
+
         self.column = 0
         self.buf_x = 0
         self.buf_start = 32
@@ -39,12 +42,35 @@ class LEDMatrix:
                 else:
                     self.buf_x = self.buf_start
 
+            if self.flash and self.column == 0:
+                if ticks_elapsed >= self.next_update:
+                    if not self.disp_empty:
+                        self.display.fill(0)
+                        self.display.text(self.cur_message, 0, 0, 1)
+                        self.display.show()
+                        self.disp_empty = True
+                    else:
+                        self.reset_disp()
+                        self.disp_empty = False
+
+                    self.next_update = ticks_elapsed + 250  # 250 ms flash
+
+    def disp_flashing_message(self, message):
+        if message == self.cur_message:
+            return
+
+        self.reset_disp()
+        self.flash = True
+        self.cur_message = message
+        self.display.fill(0)
+        self.display.text(self.cur_message, 0, 0, 1)
+        self.display.show()
+
     def disp_static_message(self, message):
         if message == self.cur_message:
             return
 
-        self.column = 0  # setting column to 0 essentially stops scrolling
-
+        self.reset_disp()
         self.cur_message = message
         self.display.fill(0)
         self.display.text(self.cur_message, 0, 0, 1)
@@ -61,5 +87,8 @@ class LEDMatrix:
         self.buf_x = self.buf_start
 
     def reset_disp(self):
+        self.column = 0
+        self.flash = False
+        self.next_update = 0
         self.display.fill(0)
         self.display.show()

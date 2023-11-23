@@ -2,6 +2,7 @@ import array, time
 from machine import Pin
 import rp2
 
+
 # PIO state machine for RGB. Pulls 24 bits (rgb -> 3 * 8bit) automatically
 @rp2.asm_pio(sideset_init=rp2.PIO.OUT_LOW, out_shiftdir=rp2.PIO.SHIFT_LEFT, autopull=True, pull_thresh=24)
 def ws2812():
@@ -10,12 +11,13 @@ def ws2812():
     T3 = 3
     wrap_target()
     label("bitloop")
-    out(x, 1)               .side(0)    [T3 - 1]
-    jmp(not_x, "do_zero")   .side(1)    [T1 - 1]
-    jmp("bitloop")          .side(1)    [T2 - 1]
+    out(x, 1).side(0)[T3 - 1]
+    jmp(not_x, "do_zero").side(1)[T1 - 1]
+    jmp("bitloop").side(1)[T2 - 1]
     label("do_zero")
-    nop().side(0)                       [T2 - 1]
+    nop().side(0)[T2 - 1]
     wrap()
+
 
 # PIO state machine for RGBW. Pulls 32 bits (rgbw -> 4 * 8bit) automatically
 @rp2.asm_pio(sideset_init=rp2.PIO.OUT_LOW, out_shiftdir=rp2.PIO.SHIFT_LEFT, autopull=True, pull_thresh=32)
@@ -25,11 +27,11 @@ def sk6812():
     T3 = 3
     wrap_target()
     label("bitloop")
-    out(x, 1)               .side(0)    [T3 - 1]
-    jmp(not_x, "do_zero")   .side(1)    [T1 - 1]
-    jmp("bitloop")          .side(1)    [T2 - 1]
+    out(x, 1).side(0)[T3 - 1]
+    jmp(not_x, "do_zero").side(1)[T1 - 1]
+    jmp("bitloop").side(1)[T2 - 1]
     label("do_zero")
-    nop()                   .side(0)    [T2 - 1]
+    nop().side(0)[T2 - 1]
     wrap()
 
 
@@ -49,7 +51,7 @@ def sk6812():
 class Neopixel:
     def __init__(self, num_leds, state_machine, pin, mode="RGB", delay=0.0001):
         self.pixels = array.array("I", [0 for _ in range(num_leds)])
-        self.mode = set(mode)   # set for better performance
+        self.mode = set(mode)  # set for better performance
         if 'W' in self.mode:
             # RGBW uses different PIO state machine configuration
             self.sm = rp2.StateMachine(state_machine, sk6812, freq=8000000, sideset_base=Pin(pin))
@@ -64,6 +66,8 @@ class Neopixel:
         self.num_leds = num_leds
         self.delay = delay
         self.brightnessvalue = 255
+
+        self.color_cache = [(0, 0, 0)] * self.num_leds
 
     # Set the overal value to adjust brightness when updating leds
     def brightness(self, brightness=None):
@@ -138,14 +142,21 @@ class Neopixel:
             cut = 0
         for i in range(self.num_leds):
             self.sm.put(self.pixels[i], cut)
-        time.sleep(self.delay)
 
     # Set all pixels to given rgb values
     # Function accepts (r, g, b) / (r, g, b, w)
     def fill(self, rgb_w):
         for i in range(self.num_leds):
-            self.set_pixel(i, rgb_w)
+            self.set_pixel_nfu(i, rgb_w, i == (self.num_leds - 1))  # only update once last pixel has been set
         time.sleep(self.delay)
 
     def clear(self):
         self.pixels = array.array("I", [0] * self.num_leds)
+        self.color_cache = [(0, 0, 0)] * self.num_leds
+        self.show()
+
+    def set_pixel_nfu(self, pixel_id, color, update=True):
+        if self.color_cache[pixel_id] != color:
+            self.color_cache[pixel_id] = color
+            self.set_pixel(pixel_id, color)
+            if update: self.show()
