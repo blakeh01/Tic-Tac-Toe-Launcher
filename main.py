@@ -72,6 +72,7 @@ class MainProgram:
 
         # configure stepper controller
         self.steppers = StepperController(self.mcp)
+        #self.steppers.home()
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
@@ -99,14 +100,19 @@ class MainProgram:
         print("Initialization complete!")
 
     def update(self, ticks_elapsed):
+        # print(self.beam_states)
         # ----------------------------------------- UPDATE MCU ----------------------------------------- #
 
         # update pico led & rgb leds
         if ticks_elapsed >= self.led_timer:
             if self.pico_led.value():
                 self.pico_led.off()
+                self.lz_leds.fill((0, 0, 255))
+                self.ctrl_leds.show()
+                self.lz_leds.show()  # also notifying the led
             else:
                 self.pico_led.on()
+                self.lz_leds.fill((0, 255, 0))
                 self.ctrl_leds.show()
                 self.lz_leds.show()  # also notifying the leds.
             self.led_timer = ticks_elapsed + 250
@@ -157,6 +163,7 @@ class MainProgram:
             self.ctrl_leds.set_pixel_nfu(3, (255, 255, 255))
             self.ctrl_leds.set_pixel_nfu(5, (255, 255, 255))
             self.ctrl_leds.set_pixel_nfu(7, (255, 255, 255))
+            self.led_matrix.disp_static_message("P1 GO!" if self.current_player else "P2 GO!")
 
             if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
                 self.manual_theta += 5
@@ -247,7 +254,9 @@ class MainProgram:
 
             #  TODO: below will be logic for beam breaks
             if any(self.beam_states):
-                self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE", 250)
+                pass
+                #self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE", 250)
+                #self.action_timer = ticks_elapsed + self.score_timeout
 
             if ticks_elapsed >= self.action_timer:
                 if self.check_winner():
@@ -262,9 +271,9 @@ class MainProgram:
         elif self.game_state == GAME_OVER:
             if ticks_elapsed <= self.action_timer:
                 if self.check_winner() == 1:
-                    self.led_matrix.disp_scrolling_message("PLAYER 1 WINS!")
+                    self.led_matrix.disp_flashing_message("P1 WINS!", 250)
                 elif self.check_winner() == 2:
-                    self.led_matrix.disp_scrolling_message("PLAYER 2 WINS!")
+                    self.led_matrix.disp_flashing_message("P2 WINS!", 250)
 
             else:
                 self.led_matrix.disp_scrolling_message("PRESS ANY BUTTON TO PLAY AGAIN!")
@@ -288,13 +297,14 @@ class MainProgram:
     def update_beam_gpio(self):
         # Read the beam states
         current_beam_states = [beam.value() for beam in self.beam_pins]
+        print(current_beam_states)
 
         # essentially, we want to set our beam states when they are first broken
         # and we want that state to stay even after the beam is regained
         # we only reset after a short duration, this gives us the best chance at detecting the ball.
 
         for i in range(len(self.beam_pins)):
-            if self.beam_states[i] != current_beam_states[i] and current_beam_states[i] == 0:
+            if self.beam_states[i] != current_beam_states[i] and current_beam_states[i] == 1:
                 self.beam_states[i] = current_beam_states[i]
                 self.beam_reset_counter = 0
 

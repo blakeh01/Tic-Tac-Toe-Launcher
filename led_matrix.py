@@ -51,7 +51,8 @@ class LEDMatrix:
                         self.display.show()
                         self.disp_empty = True
                     else:
-                        self.reset_disp()
+                        self.display.fill(0)
+                        self.display.show()
                         self.disp_empty = False
 
                     self.next_update = ticks_elapsed + self.flash_rate  # 250 ms flash

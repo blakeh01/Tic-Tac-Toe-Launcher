@@ -32,7 +32,9 @@ class StepperController:
         self.theta_b_dir.off()
 
         self.feed_ticks = 0
-        self.feed_rate = 7
+        self.feed_rate = 5
+
+        self.do_home = False
 
     """
         NOTE: this function expects an update every millisecond, any change to this will result in speed variation.
@@ -40,6 +42,14 @@ class StepperController:
 
     def update_steppers(self):
         self.feed_ticks += 1
+
+        if self.do_home:
+            if self.theta_pos == self.theta_goal:
+                self.override_theta(0)
+
+            if self.phi_goal == self.phi_pos:
+                pass
+                #self.step_phi()
 
         if self.feed_ticks >= self.feed_rate:
             if self.theta_pos != self.theta_goal:
@@ -59,19 +69,24 @@ class StepperController:
             self.feed_ticks = 0
 
     def write_theta(self, deg, microstep=8):
-        self.theta_goal = round(deg * (1/(1.8 / microstep)))
+        self.theta_goal = round(deg * (1/(1.8 / microstep))) * 2
         print("setting goal of ", self.theta_goal)
 
     def write_phi(self, deg, microstep=8):
-        self.phi_goal = round(deg * (1/(1.8 / microstep)))
+        self.phi_goal = round(deg * (1/(1.8 / microstep))) * 2
         print("setting goal of ", self.theta_goal)
 
+    def step_phi(self):
+        self.phi_goal = self.phi_pos + 1
 
-    def override_theta(self):
-        pass
+    def override_theta(self, pos):
+        self.theta_pos = pos
+        self.theta_goal = pos
 
-    def override_phi(self):
-        pass
+    def override_phi(self, pos):
+        self.phi_pos = pos
 
     def home(self):
-        pass
+        self.do_home = True
+        self.feed_rate = 1
+        self.write_theta(110)
