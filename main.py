@@ -86,10 +86,8 @@ class MainProgram:
             0, 0, 0
         ]
 
-        self.has_announced_mode = False
-
         self.launch_duration = 500  # solenoid power on duration in ms
-        self.score_timeout = 2500  # how long to wait until a miss is determined
+        self.score_timeout = 5000  # how long to wait until a miss is determined (5s)
 
         self.aim_cd = 250  # how long to wait between aim actions
         self.manual_theta = 0
@@ -100,19 +98,16 @@ class MainProgram:
         print("Initialization complete!")
 
     def update(self, ticks_elapsed):
-        # print(self.beam_states)
         # ----------------------------------------- UPDATE MCU ----------------------------------------- #
 
         # update pico led & rgb leds
         if ticks_elapsed >= self.led_timer:
             if self.pico_led.value():
                 self.pico_led.off()
-                self.lz_leds.fill((0, 0, 255))
                 self.ctrl_leds.show()
                 self.lz_leds.show()  # also notifying the led
             else:
                 self.pico_led.on()
-                self.lz_leds.fill((0, 255, 0))
                 self.ctrl_leds.show()
                 self.lz_leds.show()  # also notifying the leds.
             self.led_timer = ticks_elapsed + 250
@@ -154,7 +149,6 @@ class MainProgram:
             if self.btn_states[1] == 0 or self.btn_states[7] == 0:
                 self.game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
                 self.ctrl_leds.clear()
-                self.action_timer = ticks_elapsed + 3000  # 3 seconds
 
         # ------------------- MANUAL MODE ------------------- #
         elif self.game_state == MANUAL_MODE:
@@ -167,15 +161,11 @@ class MainProgram:
 
             if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
                 self.manual_theta += 5
-                if self.manual_theta > 90:
-                    self.manual_theta = 90
                 self.steppers.write_theta(self.manual_theta)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
             elif self.btn_states[3] == 0 and ticks_elapsed >= self.action_timer:  # aim left
                 self.manual_phi += 5
-                if self.manual_phi > 180:
-                    self.manual_phi = 180
                 self.steppers.write_phi(self.manual_phi)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
@@ -187,15 +177,11 @@ class MainProgram:
 
             elif self.btn_states[5] == 0 and ticks_elapsed >= self.action_timer:  # aim right
                 self.manual_phi -= 5
-                if self.manual_phi > 180:
-                    self.manual_phi = 180
                 self.steppers.write_phi(self.manual_phi)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
             elif self.btn_states[7] == 0 and ticks_elapsed >= self.action_timer: # aim down
                 self.manual_theta -= 5
-                if self.manual_theta < 0:
-                    self.manual_theta = 0
                 self.steppers.write_theta(self.manual_theta)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
@@ -210,7 +196,7 @@ class MainProgram:
                 self.action_timer = ticks_elapsed + self.aim_cd
 
             elif self.btn_states[3] == 0 and ticks_elapsed >= self.action_timer:  # aim left
-                self.manual_phi += 5
+                self.manual_phi += 1
                 if self.manual_phi > 180:
                     self.manual_phi = 180
                 self.steppers.write_phi(self.manual_phi)
@@ -223,7 +209,7 @@ class MainProgram:
                 self.action_timer = ticks_elapsed + self.launch_duration
 
             elif self.btn_states[5] == 0 and ticks_elapsed >= self.action_timer:  # aim right
-                self.manual_phi -= 5
+                self.manual_phi -= 1
                 if self.manual_phi > 180:
                     self.manual_phi = 180
                 self.steppers.write_phi(self.manual_phi)
@@ -252,11 +238,13 @@ class MainProgram:
         # ------------------- WAIT FOR SCORE ------------------- #
         elif self.game_state == WAIT_SCORE:
 
-            #  TODO: below will be logic for beam breaks
-            if any(self.beam_states):
-                pass
-                #self.led_matrix.disp_flashing_message("P1 SCORE" if self.current_player else "P2 SCORE", 250)
-                #self.action_timer = ticks_elapsed + self.score_timeout
+            # score_idx = self.find_position_index()
+            # if score_idx is not None:
+            #     self.ctrl_leds.set_pixel_nfu(score_idx, (255, 0, 0) if self.current_player else (0, 0, 255))
+            #     self.led_matrix.disp_flashing_message("P1 SCORE!" if self.current_player else "P2 SCORE!", 250)
+
+            if self.check_score():
+                self.led_matrix.disp_flashing_message("P1 SCORE!" if self.current_player else "P2 SCORE!", 250)
 
             if ticks_elapsed >= self.action_timer:
                 if self.check_winner():
@@ -297,7 +285,6 @@ class MainProgram:
     def update_beam_gpio(self):
         # Read the beam states
         current_beam_states = [beam.value() for beam in self.beam_pins]
-        print(current_beam_states)
 
         # essentially, we want to set our beam states when they are first broken
         # and we want that state to stay even after the beam is regained
@@ -332,6 +319,62 @@ class MainProgram:
             return self.cur_board[2]
 
         return None
+
+    def check_score(self):
+        pos_arr = [
+            (2, 3),  # bottom right (from launcher) pos 1
+            (1, 3),  # pos 2
+            (0, 3),  # .
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (2, 5),
+            (1, 5),  # pos 8
+            (0, 5)  # pos 9
+        ]
+
+        # Find the position index
+        zero_indices = [i for i, value in enumerate(self.beam_states) if value == 0]
+
+        if len(zero_indices) == 2:
+            # Check if the zero indices array is in the pos_arr
+            if zero_indices in [list(index) for index in pos_arr]:
+                # Define the custom mapping
+                mapping = [0, 1, 2, 5, 4, 3, 6, 7, 8]
+
+                # Update the cur_board based on the mapping and zero_indices
+                self.cur_board[mapping[[list(index) for index in pos_arr].index(zero_indices)]] = 1
+
+                return True
+        return False
+
+    # def find_position_index(self):
+    #     pos_arr = [
+    #         (2, 3),  # bottom right (from launcher) pos 1
+    #         (1, 3),  # pos 2
+    #         (0, 3),  # .
+    #         (0, 4),
+    #         (1, 4),
+    #         (2, 4),
+    #         (2, 5),
+    #         (1, 5),  # pos 8
+    #         (0, 5)  # pos 9
+    #     ]
+    #
+    #     # Find indices of zeros in beam_state_ex
+    #     zero_indices = [i for i, value in enumerate(self.beam_states) if value == 0]
+    #
+    #     # Check if there are exactly two zeros
+    #     if len(zero_indices) == 2:
+    #         # Check if the zero indices array is in the pos_arr
+    #         if zero_indices in [list(index) for index in pos_arr]:
+    #             # Return the index of the zero indices array in pos_arr
+    #             return [list(index) for index in pos_arr].index(zero_indices)
+    #         else:
+    #             return None
+    #     else:
+    #         # Return None if the number of zeros is not two
+    #         return None
 
     def reset_game(self):
         self.cur_board = [0] * 9

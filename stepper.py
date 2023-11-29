@@ -32,7 +32,7 @@ class StepperController:
         self.theta_b_dir.off()
 
         self.feed_ticks = 0
-        self.feed_rate = 5
+        self.feed_rate = 2
 
         self.do_home = False
 
@@ -76,8 +76,12 @@ class StepperController:
         self.phi_goal = round(deg * (1/(1.8 / microstep))) * 2
         print("setting goal of ", self.theta_goal)
 
-    def step_phi(self):
-        self.phi_goal = self.phi_pos + 1
+    def step_phi(self, step):
+        # todo limits
+        self.phi_goal = self.phi_pos + step
+
+    def step_theta(self, step):
+        self.theta_goal = max(0, min(self.theta_pos + step, 180))  # bound limits
 
     def override_theta(self, pos):
         self.theta_pos = pos
@@ -85,8 +89,11 @@ class StepperController:
 
     def override_phi(self, pos):
         self.phi_pos = pos
+        self.phi_goal = pos
 
     def home(self):
         self.do_home = True
         self.feed_rate = 1
         self.write_theta(110)
+
+        # todo phi homing
