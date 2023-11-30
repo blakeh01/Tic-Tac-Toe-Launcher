@@ -63,9 +63,9 @@ class MainProgram:
 
         # configure landing zone LEDs
         self.lz_leds = neopixel.Neopixel(9, 1, 16, "GRB")
-        self.ctrl_leds.brightness(255)
+        self.lz_leds.brightness(255)
         self.lz_leds.fill((255, 255, 255))
-        self.ctrl_leds.show()
+        self.lz_leds.show()
 
         # configure expander board
         self.mcp = MCP23017(I2C(0, scl=Pin(1), sda=Pin(0)), 0x20)
@@ -122,11 +122,15 @@ class MainProgram:
         # update stepper motors
         self.steppers.update_steppers()
 
+
         # update landing zone leds
-        for i in self.cur_board:
-            if i == 0: self.ctrl_leds.set_pixel_nfu(i, (255, 255, 255))
-            elif i == 1: self.ctrl_leds.set_pixel_nfu(i, (255, 0, 0))
-            elif i == 2: self.ctrl_leds.set_pixel_nfu(i, (0, 0, 255))
+        for i in range(len(self.cur_board)):
+            if self.cur_board[i] == 0:
+                self.lz_leds.set_pixel_nfu(i, (255, 255, 255))
+            elif self.cur_board[i] == 1:
+                self.lz_leds.set_pixel_nfu(i, (255, 0, 0))
+            elif self.cur_board[i] == 2:
+                self.lz_leds.set_pixel_nfu(i, (0, 0, 255))
 
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
@@ -291,9 +295,12 @@ class MainProgram:
         # we only reset after a short duration, this gives us the best chance at detecting the ball.
 
         for i in range(len(self.beam_pins)):
-            if self.beam_states[i] != current_beam_states[i] and current_beam_states[i] == 1:
+            if self.beam_states[i] != current_beam_states[i] and current_beam_states[i] == 0:
                 self.beam_states[i] = current_beam_states[i]
                 self.beam_reset_counter = 0
+
+        # print("current beam states: ", current_beam_states, "\nstored beam states: ", self.beam_states)
+        print(self.beam_states)
 
         self.beam_reset_counter += 1
 
@@ -322,15 +329,15 @@ class MainProgram:
 
     def check_score(self):
         pos_arr = [
-            (2, 3),  # bottom right (from launcher) pos 1
-            (1, 3),  # pos 2
-            (0, 3),  # .
-            (0, 4),
-            (1, 4),
+            (0, 3),
+            (1, 3),
+            (2, 3),
             (2, 4),
-            (2, 5),
-            (1, 5),  # pos 8
-            (0, 5)  # pos 9
+            (1, 4),
+            (0, 4),
+            (0, 5),
+            (1, 5),
+            (2, 5)
         ]
 
         # Find the position index
@@ -340,41 +347,13 @@ class MainProgram:
             # Check if the zero indices array is in the pos_arr
             if zero_indices in [list(index) for index in pos_arr]:
                 # Define the custom mapping
-                mapping = [0, 1, 2, 5, 4, 3, 6, 7, 8]
-
+                #mapping = [0, 1, 2, 5, 4, 3, 6, 7, 8]
+                mapping = [2, 1, 0, 3, 4, 5, 8, 7, 6]
                 # Update the cur_board based on the mapping and zero_indices
-                self.cur_board[mapping[[list(index) for index in pos_arr].index(zero_indices)]] = 1
+                self.cur_board[mapping[[list(index) for index in pos_arr].index(zero_indices)]] = 1 if self.current_player else 2
 
                 return True
         return False
-
-    # def find_position_index(self):
-    #     pos_arr = [
-    #         (2, 3),  # bottom right (from launcher) pos 1
-    #         (1, 3),  # pos 2
-    #         (0, 3),  # .
-    #         (0, 4),
-    #         (1, 4),
-    #         (2, 4),
-    #         (2, 5),
-    #         (1, 5),  # pos 8
-    #         (0, 5)  # pos 9
-    #     ]
-    #
-    #     # Find indices of zeros in beam_state_ex
-    #     zero_indices = [i for i, value in enumerate(self.beam_states) if value == 0]
-    #
-    #     # Check if there are exactly two zeros
-    #     if len(zero_indices) == 2:
-    #         # Check if the zero indices array is in the pos_arr
-    #         if zero_indices in [list(index) for index in pos_arr]:
-    #             # Return the index of the zero indices array in pos_arr
-    #             return [list(index) for index in pos_arr].index(zero_indices)
-    #         else:
-    #             return None
-    #     else:
-    #         # Return None if the number of zeros is not two
-    #         return None
 
     def reset_game(self):
         self.cur_board = [0] * 9
@@ -387,6 +366,8 @@ m = MainProgram()
 total_ticks = 0
 tick_ref = 0
 d_tick = 0
+
+# acceleration curve for steppers
 
 while True:
     tick_ref = time.ticks_ms()

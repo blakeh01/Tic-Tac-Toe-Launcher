@@ -56,15 +56,35 @@ class StepperController:
                 self.theta_a_dir.value(self.theta_pos > self.theta_goal)
                 self.theta_b_dir.value(not (self.theta_pos > self.theta_goal))
 
-                self.theta_a_step.value(int(not self.theta_a_step.value()))
-                self.theta_b_step.value(int(not self.theta_a_step.value()))
+                self.theta_a_step.on()
+                self.theta_b_step.on()
+
+                self.theta_a_step.off()
+                self.theta_b_step.off()
+
                 self.theta_pos += -1 if self.theta_pos > self.theta_goal else 1
 
             if self.phi_pos != self.phi_goal:
                 self.phi_dir.output(self.phi_pos > self.phi_goal)
 
-                self.phi_step.output(int(not self.phi_step.value()))
+                self.phi_step.output(1)
+                self.phi_step.output(0)
+
                 self.phi_pos += -1 if self.phi_pos > self.phi_goal else 1
+
+            # if self.theta_pos != self.theta_goal:
+            #     self.theta_a_dir.value(self.theta_pos > self.theta_goal)
+            #     self.theta_b_dir.value(not (self.theta_pos > self.theta_goal))
+            #
+            #     self.theta_a_step.value(int(not self.theta_a_step.value()))
+            #     self.theta_b_step.value(int(not self.theta_a_step.value()))
+            #     self.theta_pos += -1 if self.theta_pos > self.theta_goal else 1
+            #
+            # if self.phi_pos != self.phi_goal:
+            #     self.phi_dir.output(self.phi_pos > self.phi_goal)
+            #
+            #     self.phi_step.output(int(not self.phi_step.value()))
+            #     self.phi_pos += -1 if self.phi_pos > self.phi_goal else 1
 
             self.feed_ticks = 0
 
