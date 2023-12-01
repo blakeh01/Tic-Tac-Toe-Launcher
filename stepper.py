@@ -24,7 +24,6 @@ class StepperController:
         self.phi_goal = 0
 
         self.switch_phi = mcp[3]
-        self.switch_theta = mcp[4]
 
         self.theta_a_dir.off()
         self.theta_b_step.off()
@@ -75,11 +74,11 @@ class StepperController:
             self.feed_ticks = 0
 
     def write_theta(self, deg, microstep=8):
-        self.theta_goal = round(deg * (1/(1.8 / microstep)))
+        self.theta_goal = max(0, min(round(deg * (1/(1.8 / microstep))), 150))
         print("setting goal of ", self.theta_goal)
 
     def write_phi(self, deg, microstep=8):
-        self.phi_goal = round(deg * (1/(1.8 / microstep)))
+        self.phi_goal = max(-180, min(round(deg * (1/(1.8 / microstep))), 180))
         print("setting goal of ", self.theta_goal)
 
     def step_phi(self, step):
