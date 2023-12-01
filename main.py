@@ -1,4 +1,6 @@
 import os
+import random
+
 import machine
 import neopixel
 import time
@@ -97,6 +99,8 @@ class MainProgram:
 
         print("Initialization complete!")
 
+        self.i = 0
+
     def update(self, ticks_elapsed):
         # ----------------------------------------- UPDATE MCU ----------------------------------------- #
 
@@ -110,7 +114,20 @@ class MainProgram:
                 self.pico_led.on()
                 self.ctrl_leds.show()
                 self.lz_leds.show()  # also notifying the leds.
-            self.led_timer = ticks_elapsed + 250
+
+            if self.game_state == MAIN_MENU:
+                self.lz_leds.set_pixel_line_gradient(0, 8,
+                                                     (random.randint(0, 1)*255, random.randint(0, 1)*255, random.randint(0, 1)*255),
+                                                     (random.randint(0, 1)*255, random.randint(0, 1)*255, random.randint(0, 1)*255))
+
+                self.ctrl_leds.set_pixel_line_gradient(0, 8,
+                                                       (random.randint(0, 1) * 255, random.randint(0, 1) * 255,
+                                                        random.randint(0, 1) * 255),
+                                                       (random.randint(0, 1) * 255, random.randint(0, 1) * 255,
+                                                        random.randint(0, 1) * 255))
+                self.ctrl_leds.set_pixel(4, (255, 0, 0))
+
+            self.led_timer = ticks_elapsed + 20
 
         # update LED matrix for displaying scrolling messages
         self.led_matrix.update(ticks_elapsed)
@@ -122,15 +139,14 @@ class MainProgram:
         # update stepper motors
         self.steppers.update_steppers()
 
-
-        # update landing zone leds
-        for i in range(len(self.cur_board)):
-            if self.cur_board[i] == 0:
-                self.lz_leds.set_pixel_nfu(i, (255, 255, 255))
-            elif self.cur_board[i] == 1:
-                self.lz_leds.set_pixel_nfu(i, (255, 0, 0))
-            elif self.cur_board[i] == 2:
-                self.lz_leds.set_pixel_nfu(i, (0, 0, 255))
+        if self.game_state != MAIN_MENU:
+            for i in range(len(self.cur_board)):
+                if self.cur_board[i] == 0:
+                    self.lz_leds.set_pixel(i, (255, 255, 255))
+                elif self.cur_board[i] == 1:
+                    self.lz_leds.set_pixel(i, (255, 0, 0))
+                elif self.cur_board[i] == 2:
+                    self.lz_leds.set_pixel(i, (0, 0, 255))
 
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
@@ -138,17 +154,21 @@ class MainProgram:
         if self.game_state == MAIN_MENU:
             self.led_matrix.disp_scrolling_message(
                 "Welcome To Tic-Tac-Toe Mortar Launcher! PRESS RED BUTTON TO CONTINUE!")
-            self.ctrl_leds.set_pixel_nfu(4, (255, 0, 0))
+            self.ctrl_leds.set_pixel(4, (255, 0, 0))
 
             if self.btn_states[4] == 0:
                 self.game_state = SELECT_MODE
                 self.ctrl_leds.clear()
+                self.lz_leds.fill((255, 255, 255))
+                self.ctrl_leds.fill((255, 255, 255))
+                self.ctrl_leds.show()
+                self.lz_leds.show()
 
         # ------------------- SELECT MODE ------------------- #
         elif self.game_state == SELECT_MODE:
             self.led_matrix.disp_scrolling_message("SELECT GAME MODE!")
-            self.ctrl_leds.set_pixel_nfu(1, (255, 0, 0))
-            self.ctrl_leds.set_pixel_nfu(7, (255, 0, 0))
+            self.ctrl_leds.set_pixel(1, (255, 0, 0))
+            self.ctrl_leds.set_pixel(7, (255, 0, 0))
 
             if self.btn_states[1] == 0 or self.btn_states[7] == 0:
                 self.game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
@@ -156,11 +176,11 @@ class MainProgram:
 
         # ------------------- MANUAL MODE ------------------- #
         elif self.game_state == MANUAL_MODE:
-            self.ctrl_leds.set_pixel_nfu(4, (255, 0, 0))
-            self.ctrl_leds.set_pixel_nfu(1, (255, 255, 255))
-            self.ctrl_leds.set_pixel_nfu(3, (255, 255, 255))
-            self.ctrl_leds.set_pixel_nfu(5, (255, 255, 255))
-            self.ctrl_leds.set_pixel_nfu(7, (255, 255, 255))
+            self.ctrl_leds.set_pixel(4, (255, 0, 0))
+            self.ctrl_leds.set_pixel(1, (255, 255, 255))
+            self.ctrl_leds.set_pixel(3, (255, 255, 255))
+            self.ctrl_leds.set_pixel(5, (255, 255, 255))
+            self.ctrl_leds.set_pixel(7, (255, 255, 255))
             self.led_matrix.disp_static_message("P1 GO!" if self.current_player else "P2 GO!")
 
             if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
@@ -242,11 +262,6 @@ class MainProgram:
         # ------------------- WAIT FOR SCORE ------------------- #
         elif self.game_state == WAIT_SCORE:
 
-            # score_idx = self.find_position_index()
-            # if score_idx is not None:
-            #     self.ctrl_leds.set_pixel_nfu(score_idx, (255, 0, 0) if self.current_player else (0, 0, 255))
-            #     self.led_matrix.disp_flashing_message("P1 SCORE!" if self.current_player else "P2 SCORE!", 250)
-
             if self.check_score():
                 self.led_matrix.disp_flashing_message("P1 SCORE!" if self.current_player else "P2 SCORE!", 250)
 
@@ -266,7 +281,6 @@ class MainProgram:
                     self.led_matrix.disp_flashing_message("P1 WINS!", 250)
                 elif self.check_winner() == 2:
                     self.led_matrix.disp_flashing_message("P2 WINS!", 250)
-
             else:
                 self.led_matrix.disp_scrolling_message("PRESS ANY BUTTON TO PLAY AGAIN!")
                 if any(self.btn_states):
@@ -299,9 +313,6 @@ class MainProgram:
                 self.beam_states[i] = current_beam_states[i]
                 self.beam_reset_counter = 0
 
-        # print("current beam states: ", current_beam_states, "\nstored beam states: ", self.beam_states)
-        print(self.beam_states)
-
         self.beam_reset_counter += 1
 
         if self.beam_reset_counter > 500:
@@ -329,30 +340,25 @@ class MainProgram:
 
     def check_score(self):
         pos_arr = [
-            (0, 3),
-            (1, 3),
-            (2, 3),
-            (2, 4),
-            (1, 4),
-            (0, 4),
-            (0, 5),
-            (1, 5),
-            (2, 5)
+            [0, 3],
+            [1, 3],
+            [2, 3],
+            [2, 4],
+            [1, 4],
+            [0, 4],
+            [0, 5],
+            [1, 5],
+            [2, 5]
         ]
 
-        # Find the position index
-        zero_indices = [i for i, value in enumerate(self.beam_states) if value == 0]
+        zero_indexes = [i for i, value in enumerate(self.beam_states) if value == 0]
+        idx_mapping = [8, 7, 6, 3, 4, 5, 2, 1, 0]
 
-        if len(zero_indices) == 2:
-            # Check if the zero indices array is in the pos_arr
-            if zero_indices in [list(index) for index in pos_arr]:
-                # Define the custom mapping
-                #mapping = [0, 1, 2, 5, 4, 3, 6, 7, 8]
-                mapping = [2, 1, 0, 3, 4, 5, 8, 7, 6]
-                # Update the cur_board based on the mapping and zero_indices
-                self.cur_board[mapping[[list(index) for index in pos_arr].index(zero_indices)]] = 1 if self.current_player else 2
-
+        for index, pos in enumerate(pos_arr):
+            if pos == zero_indexes:
+                self.cur_board[idx_mapping.index(index)] = 1 if self.current_player else 2
                 return True
+
         return False
 
     def reset_game(self):
@@ -366,8 +372,6 @@ m = MainProgram()
 total_ticks = 0
 tick_ref = 0
 d_tick = 0
-
-# acceleration curve for steppers
 
 while True:
     tick_ref = time.ticks_ms()

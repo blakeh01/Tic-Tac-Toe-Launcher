@@ -11,11 +11,11 @@ def ws2812():
     T3 = 3
     wrap_target()
     label("bitloop")
-    out(x, 1).side(0)[T3 - 1]
-    jmp(not_x, "do_zero").side(1)[T1 - 1]
-    jmp("bitloop").side(1)[T2 - 1]
+    out(x, 1)               .side(0)    [T3 - 1]
+    jmp(not_x, "do_zero")   .side(1)    [T1 - 1]
+    jmp("bitloop")          .side(1)    [T2 - 1]
     label("do_zero")
-    nop().side(0)[T2 - 1]
+    nop()                   .side(0)    [T2 - 1]
     wrap()
 
 
@@ -27,12 +27,23 @@ def sk6812():
     T3 = 3
     wrap_target()
     label("bitloop")
-    out(x, 1).side(0)[T3 - 1]
-    jmp(not_x, "do_zero").side(1)[T1 - 1]
-    jmp("bitloop").side(1)[T2 - 1]
+    out(x, 1)               .side(0)    [T3 - 1]
+    jmp(not_x, "do_zero")   .side(1)    [T1 - 1]
+    jmp("bitloop")          .side(1)    [T2 - 1]
     label("do_zero")
-    nop().side(0)[T2 - 1]
+    nop()                   .side(0)    [T2 - 1]
     wrap()
+
+
+# we need this because Micropython can't construct slice objects directly, only by
+# way of supporting slice notation.
+# So, e.g. slice_maker[1::4] gives a slice(1,None,4) object.
+class slice_maker_class:
+    def __getitem__(self, slc):
+        return slc
+
+
+slice_maker = slice_maker_class()
 
 
 # Delay here is the reset time. You need a pause to reset the LED strip back to the initial LED
@@ -49,29 +60,56 @@ def sk6812():
 # Same hold for every other index (and - 1 at the end for 3 letter strings).
 
 class Neopixel:
-    def __init__(self, num_leds, state_machine, pin, mode="RGB", delay=0.0001):
-        self.pixels = array.array("I", [0 for _ in range(num_leds)])
-        self.mode = set(mode)  # set for better performance
-        if 'W' in self.mode:
+    # Micropython doesn't implement __slots__, but it's good to have a place
+    # to describe the data members...
+    # __slots__ = [
+    #    'num_leds',   # number of LEDs
+    #    'pixels',     # array.array('I') of raw data for LEDs
+    #    'mode',       # mode 'RGB' etc
+    #    'W_in_mode',  # bool: is 'W' in mode
+    #    'sm',         # state machine
+    #    'shift',      # shift amount for each component, in a tuple for (R,B,G,W)
+    #    'delay',      # delay amount
+    #    'brightnessvalue', # brightness scale factor 1..255
+    # ]
+
+    def __init__(self, num_leds, state_machine, pin, mode="RGB"):
+        """
+        Constructor for library class
+
+        :param num_leds:  number of leds on your led-strip
+        :param state_machine: id of PIO state machine used
+        :param pin: pin on which data line to led-strip is connected
+        :param mode: [default: "RGB"] mode and order of bits representing the color value.
+        This can be any order of RGB or RGBW (neopixels are usually GRB)
+        :param delay: [default: 0.0001] delay used for latching of leds when sending data
+        """
+        self.pixels = array.array("I", [0] * num_leds)
+        self.mode = mode
+        self.W_in_mode = 'W' in mode
+        if self.W_in_mode:
             # RGBW uses different PIO state machine configuration
             self.sm = rp2.StateMachine(state_machine, sk6812, freq=8000000, sideset_base=Pin(pin))
-            # dictionary of values required to shift bit into position (check class desc.)
-            self.shift = {'R': (mode.index('R') ^ 3) * 8, 'G': (mode.index('G') ^ 3) * 8,
-                          'B': (mode.index('B') ^ 3) * 8, 'W': (mode.index('W') ^ 3) * 8}
+            # tuple of values required to shift bit into position (check class desc.)
+            self.shift = ((mode.index('R') ^ 3) * 8, (mode.index('G') ^ 3) * 8,
+                          (mode.index('B') ^ 3) * 8, (mode.index('W') ^ 3) * 8)
         else:
             self.sm = rp2.StateMachine(state_machine, ws2812, freq=8000000, sideset_base=Pin(pin))
-            self.shift = {'R': ((mode.index('R') ^ 3) - 1) * 8, 'G': ((mode.index('G') ^ 3) - 1) * 8,
-                          'B': ((mode.index('B') ^ 3) - 1) * 8, 'W': 0}
+            self.shift = (((mode.index('R') ^ 3) - 1) * 8, ((mode.index('G') ^ 3) - 1) * 8,
+                          ((mode.index('B') ^ 3) - 1) * 8, 0)
         self.sm.active(1)
         self.num_leds = num_leds
-        self.delay = delay
         self.brightnessvalue = 255
 
-        self.color_cache = [(0, 0, 0)] * self.num_leds
-
-    # Set the overal value to adjust brightness when updating leds
     def brightness(self, brightness=None):
-        if brightness == None:
+        """
+        Set the overall value to adjust brightness when updating leds
+        or return class brightnessvalue if brightness is None
+
+        :param brightness: [default: None] Value of brightness on interval 1..255
+        :return: class brightnessvalue member or None
+        """
+        if brightness is None:
             return self.brightnessvalue
         else:
             if brightness < 1:
@@ -80,83 +118,154 @@ class Neopixel:
             brightness = 255
         self.brightnessvalue = brightness
 
-    # Create a gradient with two RGB colors between "pixel1" and "pixel2" (inclusive)
-    # Function accepts two (r, g, b) / (r, g, b, w) tuples
-    def set_pixel_line_gradient(self, pixel1, pixel2, left_rgb_w, right_rgb_w):
+    def set_pixel_line_gradient(self, pixel1, pixel2, left_rgb_w, right_rgb_w, how_bright=None):
+        """
+        Create a gradient with two RGB colors between "pixel1" and "pixel2" (inclusive)
+
+        :param pixel1: Index of starting pixel (inclusive)
+        :param pixel2: Index of ending pixel (inclusive)
+        :param left_rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing starting color
+        :param right_rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing ending color
+        :param how_bright: [default: None] Brightness of current interval. If None, use global brightness value
+        :return: None
+        """
         if pixel2 - pixel1 == 0:
             return
         right_pixel = max(pixel1, pixel2)
         left_pixel = min(pixel1, pixel2)
 
+        with_W = len(left_rgb_w) == 4 and self.W_in_mode
+        r_diff = right_rgb_w[0] - left_rgb_w[0]
+        g_diff = right_rgb_w[1] - left_rgb_w[1]
+        b_diff = right_rgb_w[2] - left_rgb_w[2]
+        if with_W:
+            w_diff = (right_rgb_w[3] - left_rgb_w[3])
+
         for i in range(right_pixel - left_pixel + 1):
             fraction = i / (right_pixel - left_pixel)
-            red = round((right_rgb_w[0] - left_rgb_w[0]) * fraction + left_rgb_w[0])
-            green = round((right_rgb_w[1] - left_rgb_w[1]) * fraction + left_rgb_w[1])
-            blue = round((right_rgb_w[2] - left_rgb_w[2]) * fraction + left_rgb_w[2])
+            red = round(r_diff * fraction + left_rgb_w[0])
+            green = round(g_diff * fraction + left_rgb_w[1])
+            blue = round(b_diff * fraction + left_rgb_w[2])
             # if it's (r, g, b, w)
-            if len(left_rgb_w) == 4 and 'W' in self.mode:
-                white = round((right_rgb_w[3] - left_rgb_w[3]) * fraction + left_rgb_w[3])
-                self.set_pixel(left_pixel + i, (red, green, blue, white))
+            if with_W:
+                white = round(w_diff * fraction + left_rgb_w[3])
+                self.set_pixel(left_pixel + i, (red, green, blue, white), how_bright)
             else:
-                self.set_pixel(left_pixel + i, (red, green, blue))
+                self.set_pixel(left_pixel + i, (red, green, blue), how_bright)
 
-    # Set an array of pixels starting from "pixel1" to "pixel2" (inclusive) to the desired color.
-    # Function accepts (r, g, b) / (r, g, b, w) tuple
-    def set_pixel_line(self, pixel1, pixel2, rgb_w):
-        for i in range(pixel1, pixel2 + 1):
-            self.set_pixel(i, rgb_w)
+    def set_pixel_line(self, pixel1, pixel2, rgb_w, how_bright=None):
+        """
+        Set an array of pixels starting from "pixel1" to "pixel2" (inclusive) to the desired color.
 
-    # Set red, green and blue value of pixel on position <pixel_num>
-    # Function accepts (r, g, b) / (r, g, b, w) tuple
-    def set_pixel(self, pixel_num, rgb_w):
-        pos = self.shift
+        :param pixel1: Index of starting pixel (inclusive)
+        :param pixel2: Index of ending pixel (inclusive)
+        :param rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing color to be used
+        :param how_bright: [default: None] Brightness of current interval. If None, use global brightness value
+        :return: None
+        """
+        if pixel2 >= pixel1:
+            self.set_pixel(slice_maker[pixel1:pixel2 + 1], rgb_w, how_bright)
 
-        red = round(rgb_w[0] * (self.brightness() / 255))
-        green = round(rgb_w[1] * (self.brightness() / 255))
-        blue = round(rgb_w[2] * (self.brightness() / 255))
+    def set_pixel(self, pixel_num, rgb_w, how_bright=None):
+        """
+        Set red, green and blue (+ white) value of pixel on position <pixel_num>
+        pixel_num may be a 'slice' object, and then the operation is applied
+        to all pixels implied by the slice (most useful when called via __setitem__)
+
+        :param pixel_num: Index of pixel to be set or slice object representing multiple leds
+        :param rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing color to be used
+        :param how_bright: [default: None] Brightness of current interval. If None, use global brightness value
+        :return: None
+        """
+        if how_bright is None:
+            how_bright = self.brightness()
+        sh_R, sh_G, sh_B, sh_W = self.shift
+        bratio = how_bright / 255.0
+
+        red = round(rgb_w[0] * bratio)
+        green = round(rgb_w[1] * bratio)
+        blue = round(rgb_w[2] * bratio)
         white = 0
         # if it's (r, g, b, w)
-        if len(rgb_w) == 4 and 'W' in self.mode:
-            white = round(rgb_w[3] * (self.brightness() / 255))
+        if len(rgb_w) == 4 and self.W_in_mode:
+            white = round(rgb_w[3] * bratio)
 
-        self.pixels[pixel_num] = white << pos['W'] | blue << pos['B'] | red << pos['R'] | green << pos['G']
+        pix_value = white << sh_W | blue << sh_B | red << sh_R | green << sh_G
+        # set some subset, if pixel_num is a slice:
+        if type(pixel_num) is slice:
+            for i in range(*pixel_num.indices(self.num_leds)):
+                self.pixels[i] = pix_value
+        else:
+            self.pixels[pixel_num] = pix_value
 
-    # Rotate <num_of_pixels> pixels to the left
-    def rotate_left(self, num_of_pixels):
-        if num_of_pixels == None:
+    def __setitem__(self, idx, rgb_w):
+        """
+        if npix is a Neopixel object,
+        npix[10] = (0,255,0)        # <- sets #10 to green
+        npix[15:21] = (255,0,0)     # <- sets 16,17 .. 20 to red
+        npix[21:29:2] = (0,0,255)   # <- sets 21,23,25,27 to blue
+        npix[1::2] = (0,0,0)        # <- sets all odd pixels to 'off'
+        (the 'slice' cases pass idx as a 'slice' object, and
+        set_pixel processes the slice)
+
+        :param idx: Index can either be indexing number or slice
+        :param rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing color to be used
+        :return:
+        """
+        self.set_pixel(idx, rgb_w)
+
+    def rotate_left(self, num_of_pixels=None):
+        """
+        Rotate <num_of_pixels> pixels to the left
+
+        :param num_of_pixels: Number of pixels to be shifted to the left. If None, it shifts for 1.
+        :return: None
+        """
+        if num_of_pixels is None:
             num_of_pixels = 1
         self.pixels = self.pixels[num_of_pixels:] + self.pixels[:num_of_pixels]
 
-    # Rotate <num_of_pixels> pixels to the right
-    def rotate_right(self, num_of_pixels):
-        if num_of_pixels == None:
+    def rotate_right(self, num_of_pixels=None):
+        """
+        Rotate <num_of_pixels> pixels to the right
+
+        :param num_of_pixels: Number of pixels to be shifted to the right. If  None, it shifts for 1.
+        :return: None
+        """
+        if num_of_pixels is None:
             num_of_pixels = 1
         num_of_pixels = -1 * num_of_pixels
         self.pixels = self.pixels[num_of_pixels:] + self.pixels[:num_of_pixels]
 
-    # Update pixels
     def show(self):
+        """
+        Send data to led-strip, making all changes on leds have an effect.
+        This method should be used after every method that changes the state of leds or after a chain of changes.
+        :return: None
+        """
         # If mode is RGB, we cut 8 bits of, otherwise we keep all 32
         cut = 8
-        if 'W' in self.mode:
+        if self.W_in_mode:
             cut = 0
-        for i in range(self.num_leds):
-            self.sm.put(self.pixels[i], cut)
+        sm_put = self.sm.put
+        for pixval in self.pixels:
+            sm_put(pixval, cut)
 
-    # Set all pixels to given rgb values
-    # Function accepts (r, g, b) / (r, g, b, w)
-    def fill(self, rgb_w):
-        for i in range(self.num_leds):
-            self.set_pixel_nfu(i, rgb_w, i == (self.num_leds - 1))  # only update once last pixel has been set
-        time.sleep(self.delay)
+    def fill(self, rgb_w, how_bright=None):
+        """
+        Fill the entire strip with color rgb_w
+
+        :param rgb_w: Tuple of form (r, g, b) or (r, g, b, w) representing color to be used
+        :param how_bright: [default: None] Brightness of current interval. If None, use global brightness value
+        :return: None
+        """
+        # set_pixel over all leds.
+        self.set_pixel(slice_maker[:], rgb_w, how_bright)
 
     def clear(self):
-        self.pixels = array.array("I", [0] * self.num_leds)
-        self.color_cache = [(0, 0, 0)] * self.num_leds
-        self.show()
+        """
+        Clear the entire strip, i.e. set every led color to 0.
 
-    def set_pixel_nfu(self, pixel_id, color, update=True):
-        if self.color_cache[pixel_id] != color:
-            self.color_cache[pixel_id] = color
-            self.set_pixel(pixel_id, color)
-            if update: self.show()
+        :return: None
+        """
+        self.pixels = array.array("I", [0] * self.num_leds)

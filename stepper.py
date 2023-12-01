@@ -32,7 +32,7 @@ class StepperController:
         self.theta_b_dir.off()
 
         self.feed_ticks = 0
-        self.feed_rate = 2
+        self.feed_rate = 10
 
         self.do_home = False
 
@@ -72,36 +72,21 @@ class StepperController:
 
                 self.phi_pos += -1 if self.phi_pos > self.phi_goal else 1
 
-            # if self.theta_pos != self.theta_goal:
-            #     self.theta_a_dir.value(self.theta_pos > self.theta_goal)
-            #     self.theta_b_dir.value(not (self.theta_pos > self.theta_goal))
-            #
-            #     self.theta_a_step.value(int(not self.theta_a_step.value()))
-            #     self.theta_b_step.value(int(not self.theta_a_step.value()))
-            #     self.theta_pos += -1 if self.theta_pos > self.theta_goal else 1
-            #
-            # if self.phi_pos != self.phi_goal:
-            #     self.phi_dir.output(self.phi_pos > self.phi_goal)
-            #
-            #     self.phi_step.output(int(not self.phi_step.value()))
-            #     self.phi_pos += -1 if self.phi_pos > self.phi_goal else 1
-
             self.feed_ticks = 0
 
     def write_theta(self, deg, microstep=8):
-        self.theta_goal = round(deg * (1/(1.8 / microstep))) * 2
+        self.theta_goal = round(deg * (1/(1.8 / microstep)))
         print("setting goal of ", self.theta_goal)
 
     def write_phi(self, deg, microstep=8):
-        self.phi_goal = round(deg * (1/(1.8 / microstep))) * 2
+        self.phi_goal = round(deg * (1/(1.8 / microstep)))
         print("setting goal of ", self.theta_goal)
 
     def step_phi(self, step):
-        # todo limits
-        self.phi_goal = self.phi_pos + step
+        self.phi_goal = max(-180, min(self.phi_pos + step, 180))
 
     def step_theta(self, step):
-        self.theta_goal = max(0, min(self.theta_pos + step, 180))  # bound limits
+        self.theta_goal = max(0, min(self.theta_pos + step, 150))  # bound limits
 
     def override_theta(self, pos):
         self.theta_pos = pos
