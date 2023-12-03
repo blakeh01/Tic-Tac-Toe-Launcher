@@ -42,43 +42,31 @@ class StepperController:
     def update_steppers(self):
         self.feed_ticks += 1
 
-        if self.do_home:
-            if self.theta_pos == self.theta_goal:
-                self.override_theta(0)
-
-            if self.phi_goal == self.phi_pos:
-                pass
-                #self.step_phi()
-
         if self.feed_ticks >= self.feed_rate:
             if self.theta_pos != self.theta_goal:
                 self.theta_a_dir.value(self.theta_pos > self.theta_goal)
                 self.theta_b_dir.value(not (self.theta_pos > self.theta_goal))
 
-                self.theta_a_step.on()
-                self.theta_b_step.on()
-
-                self.theta_a_step.off()
-                self.theta_b_step.off()
-
+                self.theta_a_step.value(int(not self.theta_a_step.value()))
+                self.theta_b_step.value(int(not self.theta_a_step.value()))
                 self.theta_pos += -1 if self.theta_pos > self.theta_goal else 1
 
             if self.phi_pos != self.phi_goal:
                 self.phi_dir.output(self.phi_pos > self.phi_goal)
 
-                self.phi_step.output(1)
-                self.phi_step.output(0)
-
+                self.phi_step.output(int(not self.phi_step.value()))
                 self.phi_pos += -1 if self.phi_pos > self.phi_goal else 1
 
             self.feed_ticks = 0
 
     def write_theta(self, deg, microstep=8):
-        self.theta_goal = max(0, min(round(deg * (1/(1.8 / microstep))), 150))
-        print("setting goal of ", self.theta_goal)
+        deg = max(0, min(deg, 180))
+        self.theta_goal = round(deg * (1/(1.8 / microstep)))*2
+        print("setting goal of ", self.theta_goal, " or ", deg , " degrees")
 
     def write_phi(self, deg, microstep=8):
-        self.phi_goal = max(-180, min(round(deg * (1/(1.8 / microstep))), 180))
+        deg = max(-180, min(deg, 180))
+        self.phi_goal = round(deg * (1/(1.8 / microstep)))*2
         print("setting goal of ", self.theta_goal)
 
     def step_phi(self, step):
@@ -96,8 +84,8 @@ class StepperController:
         self.phi_goal = pos
 
     def home(self):
-        self.do_home = True
+        # self.do_home = True
         self.feed_rate = 1
-        self.write_theta(110)
+        self.write_theta(105)
 
         # todo phi homing

@@ -45,9 +45,9 @@ class MainProgram:
         self.btn_pins = [machine.Pin(pin, machine.Pin.IN, machine.Pin.PULL_UP) for pin in self.btn_idx]
         self.btn_states = [1] * len(self.btn_idx)
         self.btn_change_counter = [0 for _ in self.btn_pins]  # used in debouncing
-        self.btn_debounce_delay = 50  # in millis
+        self.btn_debounce_delay = 20  # in millis
 
-        # configure beam break IO, might want to put these on IRQs? (Reset state after certain amount of time)
+        # configure beam break IO
         self.beam_idx = [20, 21, 22, 26, 27, 28]
         self.beam_pins = [machine.Pin(pin, machine.Pin.IN, machine.Pin.PULL_UP) for pin in self.beam_idx]
         self.beam_states = [1] * len(self.beam_idx)
@@ -63,6 +63,8 @@ class MainProgram:
         self.ctrl_leds.fill((255, 255, 255))
         self.ctrl_leds.show()
 
+        time.sleep_ms(10)
+
         # configure landing zone LEDs
         self.lz_leds = neopixel.Neopixel(9, 1, 16, "GRB")
         self.lz_leds.brightness(255)
@@ -74,7 +76,7 @@ class MainProgram:
 
         # configure stepper controller
         self.steppers = StepperController(self.mcp)
-        #self.steppers.home()
+        self.steppers.home()
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
@@ -91,19 +93,18 @@ class MainProgram:
         self.launch_duration = 500  # solenoid power on duration in ms
         self.score_timeout = 5000  # how long to wait until a miss is determined (5s)
 
-        self.aim_cd = 250  # how long to wait between aim actions
+        self.aim_cd = 0  # how long to wait between aim actions
         self.manual_theta = 0
         self.manual_phi = 0
 
         self.action_timer = 0  # general purpose timer for game purposes.
 
-        print("Initialization complete!")
+        self.reset_timer = 0
 
-        self.i = 0
+        print("Initialization complete!")
 
     def update(self, ticks_elapsed):
         # ----------------------------------------- UPDATE MCU ----------------------------------------- #
-
         # update pico led & rgb leds
         if ticks_elapsed >= self.led_timer:
             if self.pico_led.value():
@@ -127,7 +128,7 @@ class MainProgram:
                                                         random.randint(0, 1) * 255))
                 self.ctrl_leds.set_pixel(4, (255, 0, 0))
 
-            self.led_timer = ticks_elapsed + 20
+            self.led_timer = ticks_elapsed + 100
 
         # update LED matrix for displaying scrolling messages
         self.led_matrix.update(ticks_elapsed)
@@ -139,14 +140,13 @@ class MainProgram:
         # update stepper motors
         self.steppers.update_steppers()
 
-        if self.game_state != MAIN_MENU:
-            for i in range(len(self.cur_board)):
-                if self.cur_board[i] == 0:
-                    self.lz_leds.set_pixel(i, (255, 255, 255))
-                elif self.cur_board[i] == 1:
-                    self.lz_leds.set_pixel(i, (255, 0, 0))
-                elif self.cur_board[i] == 2:
-                    self.lz_leds.set_pixel(i, (0, 0, 255))
+        if any(i == 0 for i in self.btn_states):
+            self.reset_timer += 1
+            print(self.reset_timer)
+            if self.reset_timer >= 250:
+                self.reset_game()
+        else:
+            self.reset_timer = 0
 
         # ----------------------------------------- GAME STATE MACHINE ----------------------------------------- #
 
@@ -163,16 +163,26 @@ class MainProgram:
                 self.ctrl_leds.fill((255, 255, 255))
                 self.ctrl_leds.show()
                 self.lz_leds.show()
+                self.action_timer = 0
 
         # ------------------- SELECT MODE ------------------- #
         elif self.game_state == SELECT_MODE:
-            self.led_matrix.disp_scrolling_message("SELECT GAME MODE!")
-            self.ctrl_leds.set_pixel(1, (255, 0, 0))
-            self.ctrl_leds.set_pixel(7, (255, 0, 0))
+            if self.action_timer == 0:
+                self.led_matrix.disp_scrolling_message("SELECT GAME MODE!")
+                self.ctrl_leds.set_pixel(1, (255, 0, 0))
+                self.ctrl_leds.set_pixel(7, (255, 0, 0))
+
+                self.steppers.write_theta(10)
 
             if self.btn_states[1] == 0 or self.btn_states[7] == 0:
-                self.game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
+                self.action_timer = ticks_elapsed + 5000
+                self.led_matrix.disp_scrolling_message("AUTO MODE SELECTED" if self.btn_states[1] == 0 else "MANUAL MODE SELECTED")
+                self.last_game_state = AUTO_MODE if self.btn_states[1] == 0 else MANUAL_MODE
                 self.ctrl_leds.clear()
+
+            if self.action_timer != 0 and ticks_elapsed > self.action_timer:
+                self.game_state = self.last_game_state
+                self.steppers.override_theta(0)
 
         # ------------------- MANUAL MODE ------------------- #
         elif self.game_state == MANUAL_MODE:
@@ -184,12 +194,12 @@ class MainProgram:
             self.led_matrix.disp_static_message("P1 GO!" if self.current_player else "P2 GO!")
 
             if self.btn_states[1] == 0 and ticks_elapsed >= self.action_timer:  # aim up
-                self.manual_theta += 5
+                self.manual_theta += 1
                 self.steppers.write_theta(self.manual_theta)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
             elif self.btn_states[3] == 0 and ticks_elapsed >= self.action_timer:  # aim left
-                self.manual_phi += 5
+                self.manual_phi -= 1
                 self.steppers.write_phi(self.manual_phi)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
@@ -200,12 +210,12 @@ class MainProgram:
                 self.action_timer = ticks_elapsed + self.launch_duration
 
             elif self.btn_states[5] == 0 and ticks_elapsed >= self.action_timer:  # aim right
-                self.manual_phi -= 5
+                self.manual_phi += 1
                 self.steppers.write_phi(self.manual_phi)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
             elif self.btn_states[7] == 0 and ticks_elapsed >= self.action_timer: # aim down
-                self.manual_theta -= 5
+                self.manual_theta -= 1
                 self.steppers.write_theta(self.manual_theta)
                 self.action_timer = ticks_elapsed + self.aim_cd
 
@@ -267,20 +277,18 @@ class MainProgram:
 
             if ticks_elapsed >= self.action_timer:
                 if self.check_winner():
+                    print("PLAYER WON")
                     self.game_state = GAME_OVER
                     self.action_timer = ticks_elapsed + 5000  # disp player win for 5 seconds
-
-                self.game_state = self.last_game_state
-                self.action_timer = 0
-                self.current_player = not self.current_player
+                else:
+                    self.game_state = self.last_game_state
+                    self.action_timer = 0
+                    self.current_player = not self.current_player
 
         # ------------------- GAME OVER ------------------- #
         elif self.game_state == GAME_OVER:
             if ticks_elapsed <= self.action_timer:
-                if self.check_winner() == 1:
-                    self.led_matrix.disp_flashing_message("P1 WINS!", 250)
-                elif self.check_winner() == 2:
-                    self.led_matrix.disp_flashing_message("P2 WINS!", 250)
+                self.led_matrix.disp_flashing_message("P1 WINS!" if self.current_player else "P2 WINS!", 250)
             else:
                 self.led_matrix.disp_scrolling_message("PRESS ANY BUTTON TO PLAY AGAIN!")
                 if any(self.btn_states):
@@ -322,21 +330,21 @@ class MainProgram:
     def check_winner(self):
         # Check rows
         for i in range(0, 9, 3):
-            if self.cur_board[i] == self.cur_board[i + 1] == self.cur_board[i + 2] and self.cur_board[i] in ['1', '2']:
-                return self.cur_board[i]
+            if self.cur_board[i] == self.cur_board[i + 1] == self.cur_board[i + 2] and self.cur_board[i] in [1, 2]:
+                return True
 
         # Check columns
         for i in range(3):
-            if self.cur_board[i] == self.cur_board[i + 3] == self.cur_board[i + 6] and self.cur_board[i] in ['1', '2']:
-                return self.cur_board[i]
+            if self.cur_board[i] == self.cur_board[i + 3] == self.cur_board[i + 6] and self.cur_board[i] in [1, 2]:
+                return True
 
         # Check diagonals
-        if self.cur_board[0] == self.cur_board[4] == self.cur_board[8] and self.cur_board[0] in ['1', '2']:
-            return self.cur_board[0]
-        if self.cur_board[2] == self.cur_board[4] == self.cur_board[6] and self.cur_board[2] in ['1', '2']:
-            return self.cur_board[2]
+        if self.cur_board[0] == self.cur_board[4] == self.cur_board[8] and self.cur_board[0] in [1, 2]:
+            return True
+        if self.cur_board[2] == self.cur_board[4] == self.cur_board[6] and self.cur_board[2] in [1, 2]:
+            return True
 
-        return None
+        return False
 
     def check_score(self):
         pos_arr = [
@@ -356,6 +364,7 @@ class MainProgram:
 
         for index, pos in enumerate(pos_arr):
             if pos == zero_indexes:
+                self.lz_leds.set_pixel(index, (255, 0, 0) if self.current_player == 1 else (0, 255, 0))
                 self.cur_board[idx_mapping.index(index)] = 1 if self.current_player else 2
                 return True
 
@@ -364,6 +373,7 @@ class MainProgram:
     def reset_game(self):
         self.cur_board = [0] * 9
         self.action_timer = 0
+        self.game_state = MAIN_MENU
 
 
 machine.freq(250_000_000)  # boost pico clock to 250 MHz

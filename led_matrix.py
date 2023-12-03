@@ -16,7 +16,7 @@ class LEDMatrix:
 
         # ----------------------------------------- PROG PARAMS ----------------------------------------- #
 
-        self.scroll_speed = 10 # ms (accuracy of 10 ms)
+        self.scroll_speed = 10  # ms (accuracy of 10 ms)
         self.next_update = 0
         self.cur_message = ""
 

@@ -19,9 +19,6 @@ class StepperController:
         self.stepper_theta_b = Stepper(4, 5, invert_dir=True, steps_per_rev=200,
                                        speed=self.theta_sps)  # 1600 steps / rev @ 400 sps = 4 s / rev
 
-        # TODO: add MCP functionality for stepper motor
-        #self.stepper_phi = Stepper(steps_per_rev=(200*8), speed=400)
-
         self.at_home = False
         self.run = False
 
